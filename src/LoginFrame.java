@@ -11,6 +11,9 @@ public class LoginFrame extends JFrame {
     private JPasswordField pfPassword;
     private JLabel lbMessage;
     private final UserDAO userDAO = new UserDAO();
+    private ImageIcon eyeIcon;
+    private ImageIcon hiddenIcon;
+    private char defaultEcho;
 
     public LoginFrame() {
         setTitle("Login");
@@ -18,6 +21,8 @@ public class LoginFrame extends JFrame {
         setUndecorated(true);
         setExtendedState(JFrame.MAXIMIZED_BOTH);
         setIconImage(loadAppIcon());
+        eyeIcon = loadIcon("assets/img/eye.png", 18, 18);
+        hiddenIcon = loadIcon("assets/img/hidden.png", 18, 18);
         buildUI();
     }
 
@@ -177,6 +182,8 @@ public class LoginFrame extends JFrame {
         JLabel lbp = new JLabel("Password"); lbp.setFont(mainFont);
         pfPassword = new JPasswordField(); pfPassword.setFont(mainFont);
         pfPassword.setPreferredSize(new Dimension(360, 36));
+        defaultEcho = pfPassword.getEchoChar();
+        JPanel pwPanel = createPasswordWithToggle(pfPassword);
 
         JCheckBox cbRemember = new JCheckBox("Remember me");
 
@@ -204,7 +211,7 @@ public class LoginFrame extends JFrame {
         g.gridy = 3; g.insets = new Insets(0, 0, 6, 0); g.weightx = 0;
         inner.add(lbp, g);
         g.gridy = 4; g.insets = new Insets(0, 0, 8, 0); g.weightx = 1.0;
-        inner.add(pfPassword, g);
+        inner.add(pwPanel, g);
         g.gridy = 5; g.gridwidth = 2; g.weightx = 0; g.insets = new Insets(0, 0, 8, 0); g.anchor = GridBagConstraints.WEST;
         inner.add(cbRemember, g);
         g.gridx = 0; g.gridy = 6; g.gridwidth = 2; g.insets = new Insets(0, 0, 8, 0);
@@ -252,5 +259,45 @@ public class LoginFrame extends JFrame {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private ImageIcon loadIcon(String path, int w, int h) {
+        try {
+            Image img = new ImageIcon(path).getImage().getScaledInstance(w, h, Image.SCALE_SMOOTH);
+            return new ImageIcon(img);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private JPanel createPasswordWithToggle(JPasswordField field) {
+        JPanel p = new JPanel(new BorderLayout());
+        p.setOpaque(false);
+        p.add(field, BorderLayout.CENTER);
+
+        JButton toggle = new JButton();
+        toggle.setIcon(eyeIcon);
+        toggle.setFocusable(false);
+        toggle.setContentAreaFilled(false);
+        toggle.setBorderPainted(false);
+        toggle.setMargin(new Insets(0,0,0,0));
+        toggle.setPreferredSize(new Dimension(36, 36));
+        toggle.addActionListener(e -> {
+            boolean showing = field.getEchoChar() == 0;
+            if (showing) {
+                field.setEchoChar(defaultEcho);
+                if (eyeIcon != null) toggle.setIcon(eyeIcon);
+            } else {
+                field.setEchoChar((char) 0);
+                if (hiddenIcon != null) toggle.setIcon(hiddenIcon);
+            }
+        });
+
+        JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        right.setOpaque(false);
+        right.add(toggle);
+        p.add(right, BorderLayout.EAST);
+        p.setPreferredSize(new Dimension(360, 36));
+        return p;
     }
 }

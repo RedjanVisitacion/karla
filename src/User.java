@@ -1,7 +1,7 @@
 public class User {
     private int id;
     private String username;
-    private String role; // "admin" or "student"
+    private String role; // "admin" or "tenant"
 
     public User(int id, String username, String role) {
         this.id = id;
