@@ -2,6 +2,9 @@ import javax.swing.*;
 import javax.swing.plaf.basic.BasicButtonUI;
 import java.awt.*;
 import java.awt.image.BufferedImage;
+import java.sql.*;
+import java.util.ArrayList;
+import java.util.List;
 
 public class AdminFrame extends JFrame {
     private final Font mainFont = new Font("Segoe UI", Font.PLAIN, 14);
@@ -10,12 +13,14 @@ public class AdminFrame extends JFrame {
     private final Color sidebarItemActive = new Color(33, 150, 243);
     private final Color pageBg = new Color(245, 247, 250);
     private final Color cardBorder = new Color(220, 225, 230);
+    private final User currentUser;
 
     public AdminFrame(User user) {
         setTitle("");
         setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
         setUndecorated(true);
         setLayout(new BorderLayout());
+        this.currentUser = user;
 
         JPanel sidebar = createSidebar();
         JPanel main = createMainContent(user);
@@ -49,7 +54,8 @@ public class AdminFrame extends JFrame {
             final Color idleBg = new Color(21, 101, 192);
             final Color hoverBg = sidebarItemActive;
 
-            JButton b = new JButton(items[i]);
+            String label = items[i];
+            JButton b = new JButton(label);
             b.setFocusPainted(false);
             b.setFocusable(false);
             b.setUI(new BasicButtonUI());
@@ -68,6 +74,21 @@ public class AdminFrame extends JFrame {
                 }
                 @Override public void mouseExited(java.awt.event.MouseEvent e) {
                     if (!active) b.setBackground(idleBg);
+                }
+            });
+
+            // navigation handlers
+            b.addActionListener(e -> {
+                if ("Rooms".equals(label)) {
+                    SwingUtilities.invokeLater(() -> {
+                        JFrame f = new RoomsFrame(currentUser);
+                        f.setExtendedState(JFrame.MAXIMIZED_BOTH);
+                        showSingleWindow(f);
+                    });
+                } else if ("Dashboard".equals(label)) {
+                    // already here; no-op
+                } else if ("Tenants".equals(label)) {
+                    // placeholder for future navigation
                 }
             });
 
@@ -117,8 +138,9 @@ public class AdminFrame extends JFrame {
         // Top summary cards
         JPanel cards = new JPanel(new GridBagLayout());
         cards.setOpaque(false);
-        addStatCard(cards, 0, 0, "Total Tenants", "25");
-        addStatCard(cards, 1, 0, "Total Rooms / Available Rooms", "35 / 7");
+        String[] rc = getRoomCounts();
+        addStatCard(cards, 0, 0, "Total Tenants", String.valueOf(getTenantCount()));
+        addStatCard(cards, 1, 0, "Total Rooms / Available Rooms", rc[0] + " / " + rc[1]);
         addStatCard(cards, 2, 0, "Monthly Income", "\u20B14,500");
         addStatCard(cards, 3, 0, "Pending Payments", "3");
         g.gridx = 0; g.gridy = 1; g.gridwidth = 2; g.fill = GridBagConstraints.HORIZONTAL; g.weightx = 1; g.insets = new Insets(0,0,16,0);
@@ -131,21 +153,40 @@ public class AdminFrame extends JFrame {
         GridBagConstraints rg = new GridBagConstraints();
         rg.gridx = 0; rg.gridy = 0; rg.gridwidth = 3; rg.anchor = GridBagConstraints.WEST; rg.insets = new Insets(0,0,8,0);
         roomStatus.add(rsTitle, rg);
-        // grid 3x4 of rooms with colored labels
+        // dynamic grid of rooms with colored labels (live from DB)
+        List<RoomItem> rooms = fetchRooms(Integer.MAX_VALUE);
         int idx = 0;
-        String[] names = {"Room 101","Room 102","Room 103","Room 104","Room 105","Room 106","Room 107","Room 108","Room 109","Room 110","Room 111","Room 112"};
-        Color green = new Color(232,245,233);
+        Color greenBg = new Color(232,245,233);   // empty
         Color greenFg = new Color(46,125,50);
-        Color red = new Color(255,235,238);
+        Color yellowBg = new Color(255,248,225);  // partially occupied
+        Color yellowFg = new Color(183,109,0);
+        Color redBg = new Color(255,235,238);     // full
         Color redFg = new Color(183,28,28);
-        for (int r = 0; r < 4; r++) {
-            for (int c = 0; c < 3; c++) {
-                JLabel pill = new JLabel(names[idx++], SwingConstants.CENTER);
-                boolean occupied = (idx % 4 != 0); // mock statuses
+        int cols = 4;
+        int rows = (int) Math.ceil(rooms.size() / (double) cols);
+        if (rows == 0) rows = 1;
+        for (int r = 0; r < rows; r++) {
+            for (int c = 0; c < cols; c++) {
+                String label = idx < rooms.size() ? rooms.get(idx).name : "";
+                String status = idx < rooms.size() ? rooms.get(idx).status : "available";
+                idx++;
+                if (label.isEmpty()) break;
+                JLabel pill = new JLabel(label, SwingConstants.CENTER);
                 pill.setOpaque(true);
                 pill.setBorder(BorderFactory.createEmptyBorder(6, 12, 6, 12));
-                pill.setBackground(occupied ? green : red);
-                pill.setForeground(occupied ? greenFg : redFg);
+                // color by occupancy vs capacity
+                if (idx-1 < rooms.size()) {
+                    RoomItem it = rooms.get(idx-1);
+                    if (it.occupied == 0) {
+                        pill.setBackground(greenBg); pill.setForeground(greenFg);
+                    } else if (it.occupied < it.capacity) {
+                        pill.setBackground(yellowBg); pill.setForeground(yellowFg);
+                    } else {
+                        pill.setBackground(redBg); pill.setForeground(redFg);
+                    }
+                } else {
+                    pill.setBackground(greenBg); pill.setForeground(greenFg);
+                }
                 GridBagConstraints cg = new GridBagConstraints();
                 cg.gridx = c; cg.gridy = r + 1; cg.insets = new Insets(4,4,4,4); cg.anchor = GridBagConstraints.CENTER;
                 roomStatus.add(pill, cg);
@@ -281,6 +322,51 @@ public class AdminFrame extends JFrame {
         g.gridx = 0; g.gridy = 1; p.add(unpaid, g);
         g.gridx = 1; p.add(new JLabel("Unpaid"), g);
         return p;
+    }
+
+    private String[] getRoomCounts() {
+        String total = "0", available = "0", occupied = "0";
+        String q = "SELECT (SELECT COUNT(*) FROM rooms), (SELECT COUNT(*) FROM rooms WHERE status='available'), (SELECT COUNT(*) FROM rooms WHERE status='occupied')";
+        try (Connection c = DBUtil.getConnection(); Statement s = c.createStatement(); ResultSet rs = s.executeQuery(q)) {
+            if (rs.next()) {
+                total = String.valueOf(rs.getInt(1));
+                available = String.valueOf(rs.getInt(2));
+                occupied = String.valueOf(rs.getInt(3));
+            }
+        } catch (SQLException ignored) { }
+        return new String[]{total, available, occupied};
+    }
+
+    private List<RoomItem> fetchRooms(int limit) {
+        List<RoomItem> list = new ArrayList<>();
+        String qAll = "SELECT r.room_number, r.status, r.capacity, COALESCE(COUNT(ra.user_id),0) AS occ " +
+                "FROM rooms r LEFT JOIN room_assignments ra ON ra.room_id=r.id " +
+                "GROUP BY r.id, r.room_number, r.status, r.capacity ORDER BY r.room_number";
+        String qLim = qAll + " LIMIT ?";
+        try (Connection c = DBUtil.getConnection(); PreparedStatement ps = c.prepareStatement(limit == Integer.MAX_VALUE ? qAll : qLim)) {
+            if (limit != Integer.MAX_VALUE) ps.setInt(1, limit);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    list.add(new RoomItem(rs.getString(1), rs.getString(2), rs.getInt(3), rs.getInt(4)));
+                }
+            }
+        } catch (SQLException ignored) {}
+        return list;
+    }
+
+    private int getTenantCount() {
+        String q = "SELECT COUNT(*) FROM users WHERE role='tenant'";
+        try (Connection c = DBUtil.getConnection(); Statement s = c.createStatement(); ResultSet rs = s.executeQuery(q)) {
+            if (rs.next()) return rs.getInt(1);
+        } catch (SQLException ignored) { }
+        return 0;
+    }
+
+    static class RoomItem {
+        final String name; final String status; final int capacity; final int occupied;
+        RoomItem(String name, String status, int capacity, int occupied) {
+            this.name = name; this.status = status; this.capacity = capacity; this.occupied = occupied;
+        }
     }
 
     static class RoundedBorder extends javax.swing.border.AbstractBorder {
