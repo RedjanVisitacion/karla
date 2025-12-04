@@ -5,6 +5,7 @@ import java.awt.image.BufferedImage;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.text.SimpleDateFormat;
 
 public class AdminFrame extends JFrame {
     private final Font mainFont = new Font("Segoe UI", Font.PLAIN, 14);
@@ -29,6 +30,26 @@ public class AdminFrame extends JFrame {
         add(main, BorderLayout.CENTER);
     }
 
+    private int getMonthlyIncome() {
+        String q = "SELECT COALESCE(SUM(amount),0) FROM payments WHERE status='paid' AND month_key=?";
+        String monthKey = java.time.LocalDate.now().toString().substring(0,7);
+        try (Connection c = DBUtil.getConnection(); PreparedStatement ps = c.prepareStatement(q)) {
+            ps.setString(1, monthKey);
+            try (ResultSet rs = ps.executeQuery()) { if (rs.next()) return rs.getBigDecimal(1).intValue(); }
+        } catch (SQLException ignored) { }
+        return 0;
+    }
+
+    private int getPendingPayments() {
+        String q = "SELECT COUNT(*) FROM payments WHERE status='unpaid' AND month_key=?";
+        String monthKey = java.time.LocalDate.now().toString().substring(0,7);
+        try (Connection c = DBUtil.getConnection(); PreparedStatement ps = c.prepareStatement(q)) {
+            ps.setString(1, monthKey);
+            try (ResultSet rs = ps.executeQuery()) { if (rs.next()) return rs.getInt(1); }
+        } catch (SQLException ignored) { }
+        return 0;
+    }
+
     private JPanel createSidebar() {
         JPanel side = new JPanel();
         side.setBackground(sidebarBg);
@@ -40,8 +61,8 @@ public class AdminFrame extends JFrame {
         brand.setFont(new Font("Segoe UI", Font.BOLD, 18));
 
         String[] items = new String[]{
-            "Dashboard", "Tenants", "Rooms", "Payments & Billing",
-            "Maintenance Requests", "Announcements", "Reports"
+            "Dashboard", "Rooms", "Payments & Billing",
+            "Maintenance Requests", "Announcements"
         };
 
         GridBagConstraints g = new GridBagConstraints();
@@ -88,7 +109,17 @@ public class AdminFrame extends JFrame {
                 } else if ("Dashboard".equals(label)) {
                     // already here; no-op
                 } else if ("Tenants".equals(label)) {
-                    // placeholder for future navigation
+                    SwingUtilities.invokeLater(() -> {
+                        JFrame f = new TenantsFrame(currentUser);
+                        f.setExtendedState(JFrame.MAXIMIZED_BOTH);
+                        showSingleWindow(f);
+                    });
+                } else if ("Payments & Billing".equals(label)) {
+                    SwingUtilities.invokeLater(() -> {
+                        JFrame f = new PaymentsFrame(currentUser);
+                        f.setExtendedState(JFrame.MAXIMIZED_BOTH);
+                        showSingleWindow(f);
+                    });
                 }
             });
 
@@ -139,10 +170,11 @@ public class AdminFrame extends JFrame {
         JPanel cards = new JPanel(new GridBagLayout());
         cards.setOpaque(false);
         String[] rc = getRoomCounts();
-        addStatCard(cards, 0, 0, "Total Tenants", String.valueOf(getTenantCount()));
+        int tc = getTenantCount();
+        addStatCard(cards, 0, 0, "Total Tenants", String.valueOf(tc));
         addStatCard(cards, 1, 0, "Total Rooms / Available Rooms", rc[0] + " / " + rc[1]);
-        addStatCard(cards, 2, 0, "Monthly Income", "\u20B14,500");
-        addStatCard(cards, 3, 0, "Pending Payments", "3");
+        addStatCard(cards, 2, 0, "Monthly Income", "\u20B1" + getMonthlyIncome());
+        addStatCard(cards, 3, 0, "Pending Payments", String.valueOf(getPendingPayments()));
         g.gridx = 0; g.gridy = 1; g.gridwidth = 2; g.fill = GridBagConstraints.HORIZONTAL; g.weightx = 1; g.insets = new Insets(0,0,16,0);
         container.add(cards, g);
 
@@ -199,7 +231,8 @@ public class AdminFrame extends JFrame {
         GridBagConstraints pg = new GridBagConstraints();
         pg.gridx = 0; pg.gridy = 0; pg.gridwidth = 2; pg.anchor = GridBagConstraints.WEST; pg.insets = new Insets(0,0,8,0);
         paymentOverview.add(poTitle, pg);
-        paymentOverview.add(simpleBarChart(), gcAt(0,1,1,1, new Insets(0,0,8,0)));
+        int[] paySums = getPaymentSums();
+        paymentOverview.add(simpleBarChart(paySums[0], paySums[1]), gcAt(0,1,1,1, new Insets(0,0,8,0)));
         paymentOverview.add(simplePieLegend(), gcAt(1,1,1,1, new Insets(0,16,8,0)));
 
         g.gridx = 0; g.gridy = 2; g.gridwidth = 1; g.weightx = 0.5; g.insets = new Insets(0, 0, 16, 8); g.fill = GridBagConstraints.BOTH; g.weighty = 0;
@@ -215,9 +248,23 @@ public class AdminFrame extends JFrame {
         tg.gridx = 0; tg.gridy = 0; tg.gridwidth = 4; tg.anchor = GridBagConstraints.WEST; tg.insets = new Insets(0,0,8,0);
         trans.add(tTitle, tg);
         addTableRow(trans, 1, "Date", "Tenant", "Amount", pillLabel("Status", Color.DARK_GRAY, new Color(240,240,240)), true);
-        addTableRow(trans, 2, "Apr 01", "John Doe", "\u20B14500", pillLabel("Paid", new Color(46,125,50), new Color(232,245,233)), false);
-        addTableRow(trans, 3, "Mar 30", "Jane Smith", "\u20B14500", pillLabel("Paid", new Color(46,125,50), new Color(232,245,233)), false);
-        addTableRow(trans, 4, "Mar 28", "Michael Jones", "\u20B13500", pillLabel("Pending", new Color(183,109,0), new Color(255,248,225)), false);
+        // Load recent transactions from payments table (latest paid first, then unpaid)
+        String qrt = "SELECT p.paid_at, u.username, p.amount, p.status FROM payments p " +
+                "JOIN users u ON u.id=p.user_id " +
+                "ORDER BY (p.paid_at IS NULL), p.paid_at DESC, p.id DESC LIMIT 5";
+        try (Connection c = DBUtil.getConnection(); PreparedStatement ps = c.prepareStatement(qrt); ResultSet rs = ps.executeQuery()) {
+            int row = 2; SimpleDateFormat df = new SimpleDateFormat("MMM dd");
+            while (rs.next()) {
+                Timestamp ts = rs.getTimestamp(1);
+                String date = ts != null ? df.format(ts) : "-";
+                String tenant = rs.getString(2);
+                String amount = "\u20B1" + rs.getBigDecimal(3).setScale(0);
+                String st = rs.getString(4);
+                Color fg = "paid".equalsIgnoreCase(st) ? new Color(46,125,50) : new Color(183,109,0);
+                Color bg = "paid".equalsIgnoreCase(st) ? new Color(232,245,233) : new Color(255,248,225);
+                addTableRow(trans, row++, date, tenant, amount, pillLabel(capitalize(st), fg, bg), false);
+            }
+        } catch (SQLException ignore) { }
 
         JPanel maint = createCardPanel();
         maint.setLayout(new GridBagLayout());
@@ -288,27 +335,58 @@ public class AdminFrame extends JFrame {
         return g;
     }
 
-    private JComponent simpleBarChart() {
+    private JComponent simpleBarChart(int paidSum, int unpaidSum) {
         JPanel chart = new JPanel() {
             @Override protected void paintComponent(Graphics g) {
                 super.paintComponent(g);
                 Graphics2D g2 = (Graphics2D) g.create();
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                 int w = getWidth(); int h = getHeight();
-                int base = h - 20; int bw = Math.max(12, w/10); int gap = bw/2; int x = 16;
-                int[] vals = {40, 60, 45, 70, 55, 80};
+                int base = h - 28; int bw = Math.max(36, w/6); int gap = bw/2; int x = 24;
+                int max = Math.max(1, Math.max(paidSum, unpaidSum));
+                // Paid bar
+                int bhPaid = (int) ((h - 48) * (paidSum / (double) max));
                 g2.setColor(new Color(33,150,243));
-                for (int v : vals) {
-                    int bh = (int)((h-40) * (v/100.0));
-                    g2.fillRoundRect(x, base-bh, bw, bh, 6, 6);
-                    x += bw + gap;
-                }
+                g2.fillRoundRect(x, base - bhPaid, bw, bhPaid, 8, 8);
+                g2.setColor(Color.DARK_GRAY);
+                g2.drawString("Paid", x + 4, base + 16);
+                g2.drawString("\u20B1" + paidSum, x + 4, base - bhPaid - 6);
+                // Unpaid bar
+                x += bw + gap;
+                int bhUnpaid = (int) ((h - 48) * (unpaidSum / (double) max));
+                g2.setColor(new Color(183,28,28));
+                g2.fillRoundRect(x, base - bhUnpaid, bw, bhUnpaid, 8, 8);
+                g2.setColor(Color.DARK_GRAY);
+                g2.drawString("Unpaid", x + 4, base + 16);
+                g2.drawString("\u20B1" + unpaidSum, x + 4, base - bhUnpaid - 6);
                 g2.dispose();
             }
         };
         chart.setPreferredSize(new Dimension(320, 160));
         chart.setOpaque(false);
         return chart;
+    }
+
+    private int[] getPaymentSums() {
+        int paid = 0, unpaid = 0;
+        String q = "SELECT status, COALESCE(SUM(amount),0) FROM payments WHERE month_key=? GROUP BY status";
+        String monthKey = java.time.LocalDate.now().toString().substring(0,7);
+        try (Connection c = DBUtil.getConnection(); PreparedStatement ps = c.prepareStatement(q)) {
+            ps.setString(1, monthKey);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String st = rs.getString(1);
+                    int sum = rs.getBigDecimal(2).intValue();
+                    if ("paid".equalsIgnoreCase(st)) paid = sum; else if ("unpaid".equalsIgnoreCase(st)) unpaid = sum;
+                }
+            }
+        } catch (SQLException ignored) { }
+        return new int[]{paid, unpaid};
+    }
+
+    private String capitalize(String s) {
+        if (s == null || s.isEmpty()) return s;
+        return Character.toUpperCase(s.charAt(0)) + s.substring(1);
     }
 
     private JComponent simplePieLegend() {

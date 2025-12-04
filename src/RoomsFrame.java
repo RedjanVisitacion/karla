@@ -117,8 +117,8 @@ public class RoomsFrame extends JFrame {
         brand.setFont(new Font("Segoe UI", Font.BOLD, 18));
 
         String[] items = new String[]{
-                "Dashboard", "Tenants", "Rooms", "Payments & Billing",
-                "Maintenance Requests", "Announcements", "Reports"
+                "Dashboard", "Rooms", "Payments & Billing",
+                "Maintenance Requests", "Announcements"
         };
 
         GridBagConstraints g = new GridBagConstraints();
@@ -161,7 +161,15 @@ public class RoomsFrame extends JFrame {
                         showSingleWindow(f);
                     });
                 });
-            }
+            } else if ("Payments & Billing".equals(items[i])) {
+                b.addActionListener(e -> {
+                    SwingUtilities.invokeLater(() -> {
+                        JFrame f = new PaymentsFrame(currentUser);
+                        f.setExtendedState(JFrame.MAXIMIZED_BOTH);
+                        showSingleWindow(f);
+                    });
+                });
+            } // 'Rooms' is current, so no action
 
             g.gridy++;
             g.insets = new Insets(4, 12, 4, 12);

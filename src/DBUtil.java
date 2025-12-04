@@ -48,6 +48,17 @@ public class DBUtil {
                 "CONSTRAINT fk_ra_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE ON UPDATE CASCADE" +
                 ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
 
+        String createPayments = "CREATE TABLE IF NOT EXISTS payments (" +
+                "id INT AUTO_INCREMENT PRIMARY KEY, " +
+                "user_id INT NOT NULL, " +
+                "month_key CHAR(7) NOT NULL, " +
+                "amount DECIMAL(10,2) NOT NULL DEFAULT 0, " +
+                "status ENUM('paid','unpaid') NOT NULL DEFAULT 'unpaid', " +
+                "paid_at TIMESTAMP NULL DEFAULT NULL, " +
+                "UNIQUE KEY uq_user_month (user_id, month_key), " +
+                "CONSTRAINT fk_pay_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE ON UPDATE CASCADE" +
+                ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
+
         String seedAdminCheck = "SELECT COUNT(*) FROM users WHERE username=?";
         String seedAdminInsert = "INSERT INTO users (username, password, role) VALUES (?,?,?)";
         String seedRoomsCount = "SELECT COUNT(*) FROM rooms";
@@ -58,6 +69,7 @@ public class DBUtil {
             st.executeUpdate(createUsers);
             st.executeUpdate(createRooms);
             st.executeUpdate(createAssignments);
+            st.executeUpdate(createPayments);
 
             // Ensure existing schema has the correct ENUM values (admin, tenant)
             try (Statement alterSt = conn.createStatement()) {

@@ -1,6 +1,7 @@
 import javax.swing.*;
 import java.awt.*;
 import javax.swing.plaf.basic.BasicButtonUI;
+import java.sql.*;
 
 public class TenantFrame extends JFrame {
     private final Font mainFont = new Font("Segoe UI", Font.PLAIN, 14);
@@ -9,12 +10,14 @@ public class TenantFrame extends JFrame {
     private final Color sidebarItemActive = new Color(33, 150, 243);
     private final Color pageBg = new Color(245, 247, 250);
     private final Color cardBorder = new Color(220, 225, 230);
+    private final User currentUser;
 
     public TenantFrame(User user) {
         setTitle("");
         setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
         setUndecorated(true);
         setLayout(new BorderLayout());
+        this.currentUser = user;
 
         JPanel sidebar = createSidebar();
         JPanel main = createMainContent(user);
@@ -34,8 +37,7 @@ public class TenantFrame extends JFrame {
         brand.setFont(new Font("Segoe UI", Font.BOLD, 18));
 
         String[] items = new String[]{
-                "Dashboard", "My Room", "My Payments", "Maintenance Request",
-                "Announcements", "Reports"
+                "Dashboard", "Maintenance Request"
         };
 
         GridBagConstraints g = new GridBagConstraints();
@@ -70,6 +72,8 @@ public class TenantFrame extends JFrame {
                 }
             });
 
+            // No additional navigation actions for tenant sidebar currently
+
             g.gridy++;
             g.insets = new Insets(4, 12, 4, 12);
             side.add(b, g);
@@ -79,6 +83,35 @@ public class TenantFrame extends JFrame {
         side.add(Box.createVerticalGlue(), g);
 
         return side;
+    }
+
+    private void openMyRoom() {
+        String title = "My Room";
+        String roomText = "Room: Not yet assigned";
+        String statusText = "Status: Not assigned";
+        try (Connection c = DBUtil.getConnection();
+             PreparedStatement ps = c.prepareStatement(
+                     "SELECT r.room_number, r.status FROM rooms r " +
+                             "JOIN room_assignments ra ON ra.room_id = r.id " +
+                             "WHERE ra.user_id = ? LIMIT 1")) {
+            ps.setInt(1, currentUser.getId());
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    String rn = rs.getString(1);
+                    String st = rs.getString(2);
+                    if (rn != null && !rn.isEmpty()) roomText = "Room No: " + rn;
+                    if (st != null && !st.isEmpty()) statusText = "Status: " + Character.toUpperCase(st.charAt(0)) + st.substring(1);
+                }
+            }
+        } catch (SQLException ex) {
+            JOptionPane.showMessageDialog(this, ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        JPanel p = new JPanel(new GridLayout(0,1,6,6));
+        p.add(new JLabel(roomText));
+        p.add(new JLabel(statusText));
+        JOptionPane.showMessageDialog(this, p, title, JOptionPane.PLAIN_MESSAGE);
     }
 
     private JPanel createMainContent(User user) {
@@ -110,8 +143,29 @@ public class TenantFrame extends JFrame {
         // Summary card
         JPanel summary = createCardPanel();
         summary.setLayout(new GridBagLayout());
-        JLabel room = new JLabel("Room No: 203"); room.setFont(mainFont);
-        JLabel status = new JLabel("Status: Occupied"); status.setFont(mainFont);
+        // Determine tenant's assigned room and status
+        String roomText = "Room: Not yet assigned";
+        String statusText = "Status: Not assigned";
+        try (Connection c = DBUtil.getConnection();
+             PreparedStatement ps = c.prepareStatement(
+                     "SELECT r.room_number, r.status FROM rooms r " +
+                             "JOIN room_assignments ra ON ra.room_id = r.id " +
+                             "WHERE ra.user_id = ? LIMIT 1")) {
+            ps.setInt(1, user.getId());
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    String rn = rs.getString(1);
+                    String st = rs.getString(2);
+                    if (rn != null && !rn.isEmpty()) roomText = "Room No: " + rn;
+                    if (st != null && !st.isEmpty()) {
+                        statusText = "Status: " + Character.toUpperCase(st.charAt(0)) + st.substring(1);
+                    }
+                }
+            }
+        } catch (SQLException ignore) { }
+
+        JLabel room = new JLabel(roomText); room.setFont(mainFont);
+        JLabel status = new JLabel(statusText); status.setFont(mainFont);
         JLabel amount = new JLabel("₱5000"); amount.setFont(new Font("Segoe UI", Font.BOLD, 22));
         GridBagConstraints sg = new GridBagConstraints();
         sg.gridx = 0; sg.gridy = 0; sg.insets = new Insets(0, 0, 4, 24); sg.anchor = GridBagConstraints.WEST;
@@ -138,14 +192,9 @@ public class TenantFrame extends JFrame {
         JPanel maint = createCardPanel();
         maint.setLayout(new GridBagLayout());
         JLabel mTitle = new JLabel("Maintenance Requests"); mTitle.setFont(titleFont);
-        JButton createReq = new JButton("Create Request");
-        createReq.setBackground(new Color(33, 150, 243));
-        createReq.setForeground(Color.WHITE);
-        createReq.setFocusPainted(false);
         GridBagConstraints mg = new GridBagConstraints();
-        mg.gridx = 0; mg.gridy = 0; mg.anchor = GridBagConstraints.WEST; mg.insets = new Insets(0,0,8,8);
+        mg.gridx = 0; mg.gridy = 0; mg.gridwidth = 2; mg.anchor = GridBagConstraints.WEST; mg.insets = new Insets(0,0,8,0);
         maint.add(mTitle, mg);
-        mg.gridx = 1; mg.anchor = GridBagConstraints.EAST; mg.weightx = 1; maint.add(createReq, mg);
         addTableRow(maint, 1, "Date", "Status", "", true);
         addTableRow(maint, 2, "Jan 01", "Leaky faucet", pillLabel("Pending", new Color(183, 109, 0), new Color(255, 248, 225)), false);
         addTableRow(maint, 3, "Nov 1", "Broken window", pillLabel("Approved", new Color(0, 121, 107), new Color(224, 242, 241)), false);
