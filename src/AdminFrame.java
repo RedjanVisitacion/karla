@@ -143,23 +143,6 @@ public class AdminFrame extends JFrame {
         g.gridy++; g.weighty = 1; g.fill = GridBagConstraints.VERTICAL;
         side.add(Box.createVerticalGlue(), g);
 
-        JButton btnExit = new JButton("Exit");
-        btnExit.setFocusPainted(false);
-        btnExit.setFocusable(false);
-        btnExit.setUI(new BasicButtonUI());
-        btnExit.setHorizontalAlignment(SwingConstants.CENTER);
-        btnExit.setFont(mainFont);
-        btnExit.setForeground(Color.WHITE);
-        btnExit.setOpaque(true);
-        btnExit.setContentAreaFilled(true);
-        btnExit.setBorderPainted(false);
-        btnExit.setBorder(BorderFactory.createEmptyBorder(6, 12, 6, 12));
-        btnExit.setBackground(new Color(183, 28, 28));
-        btnExit.addActionListener(e -> System.exit(0));
-
-        g.gridy++; g.weighty = 0; g.fill = GridBagConstraints.HORIZONTAL; g.insets = new Insets(8, 12, 16, 12);
-        side.add(btnExit, g);
-
         return side;
     }
 
