@@ -53,10 +53,28 @@ public class DBUtil {
                 "user_id INT NOT NULL, " +
                 "month_key CHAR(7) NOT NULL, " +
                 "amount DECIMAL(10,2) NOT NULL DEFAULT 0, " +
-                "status ENUM('paid','unpaid') NOT NULL DEFAULT 'unpaid', " +
+                "status ENUM('paid','unpaid','overdue') NOT NULL DEFAULT 'unpaid', " +
                 "paid_at TIMESTAMP NULL DEFAULT NULL, " +
                 "UNIQUE KEY uq_user_month (user_id, month_key), " +
                 "CONSTRAINT fk_pay_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE ON UPDATE CASCADE" +
+                ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
+
+        String createMaintenance = "CREATE TABLE IF NOT EXISTS maintenance_requests (" +
+                "id INT AUTO_INCREMENT PRIMARY KEY, " +
+                "user_id INT NOT NULL, " +
+                "description TEXT NOT NULL, " +
+                "status ENUM('pending','approved','resolved') NOT NULL DEFAULT 'pending', " +
+                "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, " +
+                "CONSTRAINT fk_mr_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE ON UPDATE CASCADE" +
+                ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
+
+        String createAnnouncements = "CREATE TABLE IF NOT EXISTS announcements (" +
+                "id INT AUTO_INCREMENT PRIMARY KEY, " +
+                "title VARCHAR(200) NOT NULL, " +
+                "body TEXT NOT NULL, " +
+                "created_by INT NOT NULL, " +
+                "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, " +
+                "CONSTRAINT fk_ann_user FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE ON UPDATE CASCADE" +
                 ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
 
         String seedAdminCheck = "SELECT COUNT(*) FROM users WHERE username=?";
@@ -70,6 +88,8 @@ public class DBUtil {
             st.executeUpdate(createRooms);
             st.executeUpdate(createAssignments);
             st.executeUpdate(createPayments);
+            st.executeUpdate(createMaintenance);
+            st.executeUpdate(createAnnouncements);
 
             // Ensure existing schema has the correct ENUM values (admin, tenant)
             try (Statement alterSt = conn.createStatement()) {
@@ -77,6 +97,11 @@ public class DBUtil {
             } catch (SQLException ignore) {
                 // If it already matches, MySQL may throw an error; safe to ignore
             }
+
+            // Ensure payments.status has 'overdue' value in case of older schema
+            try (Statement alterSt = conn.createStatement()) {
+                alterSt.executeUpdate("ALTER TABLE payments MODIFY status ENUM('paid','unpaid','overdue') NOT NULL DEFAULT 'unpaid'");
+            } catch (SQLException ignore) { }
 
             // seed default admin if missing (username: Karla, password: bhms_00;)
             try (PreparedStatement ps = conn.prepareStatement(seedAdminCheck)) {
@@ -129,6 +154,13 @@ public class DBUtil {
                 try (Statement clr = conn.createStatement()) {
                     clr.executeUpdate("UPDATE rooms SET assigned_user_id=NULL WHERE assigned_user_id IS NOT NULL");
                 }
+            } catch (SQLException ignore) { }
+
+            // mark past-month unpaid payments as overdue
+            try (PreparedStatement ps = conn.prepareStatement("UPDATE payments SET status='overdue' WHERE status='unpaid' AND month_key < ?")) {
+                String currentMonth = java.time.LocalDate.now().toString().substring(0,7);
+                ps.setString(1, currentMonth);
+                ps.executeUpdate();
             } catch (SQLException ignore) { }
 
             // recalc room statuses by occupancy vs capacity

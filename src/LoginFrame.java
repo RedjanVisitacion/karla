@@ -140,23 +140,35 @@ public class LoginFrame extends JFrame {
         JLabel title = new JLabel("Welcome to\n Boarding House Management System");
         title.setForeground(Color.WHITE);
         title.setFont(titleFont);
-        title.setHorizontalAlignment(SwingConstants.LEFT);
+        title.setHorizontalAlignment(SwingConstants.CENTER);
 
         JLabel subtitle = new JLabel("Please sign in to continue");
         subtitle.setForeground(new Color(230, 240, 255));
         subtitle.setFont(subtitleFont);
+        subtitle.setHorizontalAlignment(SwingConstants.CENTER);
+
+        JPanel centerGroup = new JPanel();
+        centerGroup.setOpaque(false);
+        centerGroup.setLayout(new GridBagLayout());
+        GridBagConstraints cg = new GridBagConstraints();
+        cg.gridx = 0; cg.gridy = 0; cg.anchor = GridBagConstraints.CENTER; cg.insets = new Insets(0,0,16,0);
+        if (iconLabel != null) centerGroup.add(iconLabel, cg);
+        cg.gridy = 1; cg.insets = new Insets(0,0,12,0); centerGroup.add(title, cg);
+        cg.gridy = 2; cg.insets = new Insets(0,0,0,0); centerGroup.add(subtitle, cg);
 
         GridBagConstraints gc = new GridBagConstraints();
-        gc.gridx = 0; gc.gridy = 0; gc.anchor = GridBagConstraints.WEST;
-        if (iconLabel != null) {
-            gc.insets = new Insets(0, 0, 16, 0);
-            panel.add(iconLabel, gc);
-            gc.gridy++;
-        }
-        gc.insets = new Insets(0, 0, 12, 0);
-        panel.add(title, gc);
-        gc.gridy = gc.gridy + 1; gc.insets = new Insets(0, 0, 0, 0);
-        panel.add(subtitle, gc);
+        gc.gridx = 0; gc.gridy = 0; gc.weightx = 1; gc.weighty = 1; gc.anchor = GridBagConstraints.CENTER; gc.fill = GridBagConstraints.BOTH;
+        panel.add(centerGroup, gc);
+
+        // bottom-left Exit button on blue area
+        JButton leftExit = new JButton("Exit");
+        leftExit.setFocusPainted(false);
+        leftExit.setBackground(new Color(183, 28, 28));
+        leftExit.setForeground(Color.WHITE);
+        leftExit.setBorder(BorderFactory.createEmptyBorder(6, 16, 6, 16));
+        leftExit.addActionListener(e -> System.exit(0));
+        gc.gridy = 1; gc.weighty = 0; gc.fill = GridBagConstraints.NONE; gc.anchor = GridBagConstraints.SOUTHWEST; gc.insets = new Insets(0, 24, 24, 0);
+        panel.add(leftExit, gc);
         return panel;
     }
 
@@ -222,7 +234,7 @@ public class LoginFrame extends JFrame {
         inner.add(btnCreate, g);
 
         GridBagConstraints outer = new GridBagConstraints();
-        outer.gridx = 0; outer.gridy = 0; outer.weightx = 1; outer.weighty = 1; outer.anchor = GridBagConstraints.CENTER;
+        outer.gridx = 0; outer.gridy = 0; outer.weightx = 1; outer.weighty = 1; outer.anchor = GridBagConstraints.CENTER; outer.fill = GridBagConstraints.NONE;
         card.add(inner, outer);
         return card;
     }

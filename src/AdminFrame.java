@@ -41,7 +41,7 @@ public class AdminFrame extends JFrame {
     }
 
     private int getPendingPayments() {
-        String q = "SELECT COUNT(*) FROM payments WHERE status='unpaid' AND month_key=?";
+        String q = "SELECT COUNT(*) FROM payments WHERE status IN ('unpaid','overdue') AND month_key=?";
         String monthKey = java.time.LocalDate.now().toString().substring(0,7);
         try (Connection c = DBUtil.getConnection(); PreparedStatement ps = c.prepareStatement(q)) {
             ps.setString(1, monthKey);
@@ -120,6 +120,18 @@ public class AdminFrame extends JFrame {
                         f.setExtendedState(JFrame.MAXIMIZED_BOTH);
                         showSingleWindow(f);
                     });
+                } else if ("Maintenance Requests".equals(label)) {
+                    SwingUtilities.invokeLater(() -> {
+                        JFrame f = new MaintenanceRequestsFrame(currentUser);
+                        f.setExtendedState(JFrame.MAXIMIZED_BOTH);
+                        showSingleWindow(f);
+                    });
+                } else if ("Announcements".equals(label)) {
+                    SwingUtilities.invokeLater(() -> {
+                        JFrame f = new AnnouncementsFrame(currentUser);
+                        f.setExtendedState(JFrame.MAXIMIZED_BOTH);
+                        showSingleWindow(f);
+                    });
                 }
             });
 
@@ -130,6 +142,23 @@ public class AdminFrame extends JFrame {
 
         g.gridy++; g.weighty = 1; g.fill = GridBagConstraints.VERTICAL;
         side.add(Box.createVerticalGlue(), g);
+
+        JButton btnExit = new JButton("Exit");
+        btnExit.setFocusPainted(false);
+        btnExit.setFocusable(false);
+        btnExit.setUI(new BasicButtonUI());
+        btnExit.setHorizontalAlignment(SwingConstants.CENTER);
+        btnExit.setFont(mainFont);
+        btnExit.setForeground(Color.WHITE);
+        btnExit.setOpaque(true);
+        btnExit.setContentAreaFilled(true);
+        btnExit.setBorderPainted(false);
+        btnExit.setBorder(BorderFactory.createEmptyBorder(6, 12, 6, 12));
+        btnExit.setBackground(new Color(183, 28, 28));
+        btnExit.addActionListener(e -> System.exit(0));
+
+        g.gridy++; g.weighty = 0; g.fill = GridBagConstraints.HORIZONTAL; g.insets = new Insets(8, 12, 16, 12);
+        side.add(btnExit, g);
 
         return side;
     }
@@ -165,6 +194,9 @@ public class AdminFrame extends JFrame {
         rightHead.add(btnLogout);
         g.gridx = 1; g.gridy = 0; g.gridwidth = 1; g.weightx = 0; g.anchor = GridBagConstraints.EAST;
         container.add(rightHead, g);
+
+        // housekeeping: ensure current month dues exist for all tenants and mark overdue for past months
+        ensureMonthAndOverdue();
 
         // Top summary cards
         JPanel cards = new JPanel(new GridBagLayout());
@@ -248,7 +280,7 @@ public class AdminFrame extends JFrame {
         tg.gridx = 0; tg.gridy = 0; tg.gridwidth = 4; tg.anchor = GridBagConstraints.WEST; tg.insets = new Insets(0,0,8,0);
         trans.add(tTitle, tg);
         addTableRow(trans, 1, "Date", "Tenant", "Amount", pillLabel("Status", Color.DARK_GRAY, new Color(240,240,240)), true);
-        // Load recent transactions from payments table (latest paid first, then unpaid)
+        // Load recent transactions from payments table (latest paid first, then unpaid/overdue)
         String qrt = "SELECT p.paid_at, u.username, p.amount, p.status FROM payments p " +
                 "JOIN users u ON u.id=p.user_id " +
                 "ORDER BY (p.paid_at IS NULL), p.paid_at DESC, p.id DESC LIMIT 5";
@@ -260,8 +292,11 @@ public class AdminFrame extends JFrame {
                 String tenant = rs.getString(2);
                 String amount = "\u20B1" + rs.getBigDecimal(3).setScale(0);
                 String st = rs.getString(4);
-                Color fg = "paid".equalsIgnoreCase(st) ? new Color(46,125,50) : new Color(183,109,0);
-                Color bg = "paid".equalsIgnoreCase(st) ? new Color(232,245,233) : new Color(255,248,225);
+                Color fg;
+                Color bg;
+                if ("paid".equalsIgnoreCase(st)) { fg = new Color(46,125,50); bg = new Color(232,245,233); }
+                else if ("overdue".equalsIgnoreCase(st)) { fg = new Color(183,28,28); bg = new Color(255,235,238); }
+                else { fg = new Color(183,109,0); bg = new Color(255,248,225); }
                 addTableRow(trans, row++, date, tenant, amount, pillLabel(capitalize(st), fg, bg), false);
             }
         } catch (SQLException ignore) { }
@@ -273,9 +308,21 @@ public class AdminFrame extends JFrame {
         mg.gridx = 0; mg.gridy = 0; mg.gridwidth = 3; mg.anchor = GridBagConstraints.WEST; mg.insets = new Insets(0,0,8,0);
         maint.add(mTitle, mg);
         addTableRow(maint, 1, "Tenant", "Issue", "", pillLabel("Status", Color.DARK_GRAY, new Color(240,240,240)), true);
-        addTableRow(maint, 2, "Johnson Taylor", "Leaky faucet", "", pillLabel("Approved", new Color(0,121,107), new Color(224,242,241)), false);
-        addTableRow(maint, 3, "Sarah Williams", "Broken window", "", pillLabel("Pending", new Color(183,109,0), new Color(255,248,225)), false);
-        addTableRow(maint, 4, "James Brown", "Faulty light", "", pillLabel("Paid", new Color(46,125,50), new Color(232,245,233)), false);
+        String qrm = "SELECT u.username, mr.description, mr.status FROM maintenance_requests mr " +
+                "JOIN users u ON u.id=mr.user_id ORDER BY mr.created_at DESC, mr.id DESC LIMIT 5";
+        try (Connection c = DBUtil.getConnection(); PreparedStatement ps = c.prepareStatement(qrm); ResultSet rs = ps.executeQuery()) {
+            int row = 2;
+            while (rs.next()) {
+                String tenant = rs.getString(1);
+                String issue = rs.getString(2);
+                String st = rs.getString(3);
+                Color fg = new Color(183,109,0); // pending
+                Color bg = new Color(255,248,225);
+                if ("approved".equalsIgnoreCase(st)) { fg = new Color(0,121,107); bg = new Color(224,242,241); }
+                if ("resolved".equalsIgnoreCase(st)) { fg = new Color(46,125,50); bg = new Color(232,245,233); }
+                addTableRow(maint, row++, tenant, issue, "", pillLabel(capitalize(st), fg, bg), false);
+            }
+        } catch (SQLException ignore) { }
 
         g.gridx = 0; g.gridy = 3; g.gridwidth = 1; g.weightx = 0.5; g.insets = new Insets(0, 0, 0, 8); g.fill = GridBagConstraints.BOTH; g.weighty = 1;
         container.add(trans, g);
@@ -377,11 +424,29 @@ public class AdminFrame extends JFrame {
                 while (rs.next()) {
                     String st = rs.getString(1);
                     int sum = rs.getBigDecimal(2).intValue();
-                    if ("paid".equalsIgnoreCase(st)) paid = sum; else if ("unpaid".equalsIgnoreCase(st)) unpaid = sum;
+                    if ("paid".equalsIgnoreCase(st)) paid = sum;
+                    else if ("unpaid".equalsIgnoreCase(st) || "overdue".equalsIgnoreCase(st)) unpaid += sum;
                 }
             }
         } catch (SQLException ignored) { }
         return new int[]{paid, unpaid};
+    }
+
+    private void ensureMonthAndOverdue() {
+        String monthKey = java.time.LocalDate.now().toString().substring(0,7);
+        try (Connection c = DBUtil.getConnection()) {
+            String upsert = "INSERT INTO payments (user_id, month_key, amount, status) " +
+                    "SELECT id, ?, 600, 'unpaid' FROM users WHERE role='tenant' " +
+                    "ON DUPLICATE KEY UPDATE amount=VALUES(amount)";
+            try (PreparedStatement ps = c.prepareStatement(upsert)) {
+                ps.setString(1, monthKey);
+                ps.executeUpdate();
+            }
+            try (PreparedStatement ps = c.prepareStatement("UPDATE payments SET status='overdue' WHERE status='unpaid' AND month_key < ?")) {
+                ps.setString(1, monthKey);
+                ps.executeUpdate();
+            }
+        } catch (SQLException ignored) { }
     }
 
     private String capitalize(String s) {

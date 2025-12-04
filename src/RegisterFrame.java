@@ -49,7 +49,11 @@ public class RegisterFrame extends JFrame {
             boolean ok = userDAO.createUser(username, password, "tenant");
             if (ok) {
                 JOptionPane.showMessageDialog(this, "Account created. You can login now.", "Success", JOptionPane.INFORMATION_MESSAGE);
-                dispose();
+                SwingUtilities.invokeLater(() -> {
+                    JFrame f = new LoginFrame();
+                    f.setExtendedState(JFrame.MAXIMIZED_BOTH);
+                    showSingleWindow(f);
+                });
             } else {
                 lbMessage.setText("Could not create user.");
             }

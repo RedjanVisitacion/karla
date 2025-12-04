@@ -2,6 +2,10 @@ import javax.swing.*;
 import java.awt.*;
 import javax.swing.plaf.basic.BasicButtonUI;
 import java.sql.*;
+import java.time.LocalDate;
+import java.time.format.TextStyle;
+import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 
 public class TenantFrame extends JFrame {
     private final Font mainFont = new Font("Segoe UI", Font.PLAIN, 14);
@@ -11,6 +15,7 @@ public class TenantFrame extends JFrame {
     private final Color pageBg = new Color(245, 247, 250);
     private final Color cardBorder = new Color(220, 225, 230);
     private final User currentUser;
+    private JPanel maintPanel;
 
     public TenantFrame(User user) {
         setTitle("");
@@ -47,6 +52,7 @@ public class TenantFrame extends JFrame {
 
         for (int i = 0; i < items.length; i++) {
             final boolean active = (i == 0);
+            final String label = items[i];
             final Color idleBg = new Color(21, 101, 192); // solid mid blue for idle state
             final Color hoverBg = sidebarItemActive;      // brighter blue on hover
 
@@ -72,7 +78,11 @@ public class TenantFrame extends JFrame {
                 }
             });
 
-            // No additional navigation actions for tenant sidebar currently
+            b.addActionListener(e -> {
+                if ("Maintenance Request".equals(label)) {
+                    openMaintenanceRequest();
+                }
+            });
 
             g.gridy++;
             g.insets = new Insets(4, 12, 4, 12);
@@ -112,6 +122,31 @@ public class TenantFrame extends JFrame {
         p.add(new JLabel(roomText));
         p.add(new JLabel(statusText));
         JOptionPane.showMessageDialog(this, p, title, JOptionPane.PLAIN_MESSAGE);
+    }
+
+    private void openMaintenanceRequest() {
+        JTextArea ta = new JTextArea(5, 30);
+        ta.setLineWrap(true);
+        ta.setWrapStyleWord(true);
+        JScrollPane sp = new JScrollPane(ta);
+        int res = JOptionPane.showConfirmDialog(this, sp, "New Maintenance Request", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        if (res == JOptionPane.OK_OPTION) {
+            String desc = ta.getText().trim();
+            if (desc.isEmpty()) {
+                JOptionPane.showMessageDialog(this, "Please enter a description.");
+                return;
+            }
+            String sql = "INSERT INTO maintenance_requests (user_id, description, status) VALUES (?,?, 'pending')";
+            try (Connection c = DBUtil.getConnection(); PreparedStatement ps = c.prepareStatement(sql)) {
+                ps.setInt(1, currentUser.getId());
+                ps.setString(2, desc);
+                ps.executeUpdate();
+                JOptionPane.showMessageDialog(this, "Request submitted.");
+                reloadMaintenancePanel();
+            } catch (SQLException ex) {
+                JOptionPane.showMessageDialog(this, ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+            }
+        }
     }
 
     private JPanel createMainContent(User user) {
@@ -164,9 +199,21 @@ public class TenantFrame extends JFrame {
             }
         } catch (SQLException ignore) { }
 
-        JLabel room = new JLabel(roomText); room.setFont(mainFont);
-        JLabel status = new JLabel(statusText); status.setFont(mainFont);
-        JLabel amount = new JLabel("₱5000"); amount.setFont(new Font("Segoe UI", Font.BOLD, 22));
+        JLabel room = (JLabel) pillLabel(roomText, new Color(55,71,79), new Color(236,239,241));
+        room.setFont(mainFont);
+        Color stFg = new Color(46,125,50); Color stBg = new Color(232,245,233); // default occupied -> green
+        if (statusText.toLowerCase().contains("available")) { stFg = new Color(183,109,0); stBg = new Color(255,248,225); }
+        JLabel status = (JLabel) pillLabel(statusText, stFg, stBg);
+        status.setFont(mainFont);
+        // Compute total balance = sum of unpaid payments for this tenant (all months)
+        int balance = 0;
+        try (Connection c = DBUtil.getConnection();
+             PreparedStatement ps = c.prepareStatement("SELECT COALESCE(SUM(amount),0) FROM payments WHERE user_id=? AND status='unpaid'")) {
+            ps.setInt(1, user.getId());
+            try (ResultSet rs = ps.executeQuery()) { if (rs.next()) balance = rs.getBigDecimal(1).intValue(); }
+        } catch (SQLException ignore) { }
+        JLabel amount = (JLabel) pillLabel("Balance: ₱" + balance, new Color(183, 28, 28), new Color(255,235,238));
+        amount.setFont(new Font("Segoe UI", Font.BOLD, 16));
         GridBagConstraints sg = new GridBagConstraints();
         sg.gridx = 0; sg.gridy = 0; sg.insets = new Insets(0, 0, 4, 24); sg.anchor = GridBagConstraints.WEST;
         summary.add(room, sg);
@@ -183,39 +230,111 @@ public class TenantFrame extends JFrame {
         pg.gridx = 0; pg.gridy = 0; pg.gridwidth = 3; pg.anchor = GridBagConstraints.WEST; pg.insets = new Insets(0,0,8,0);
         payments.add(phTitle, pg);
         addTableRow(payments, 1, "Date", "Amount", "Status", true);
-        addTableRow(payments, 2, "Jan 01", "₱5000", pillLabel("Paid", new Color(46, 125, 50), new Color(232, 245, 233)), false);
-        addTableRow(payments, 3, "Dec 01", "₱5000", pillLabel("Paid", new Color(46, 125, 50), new Color(232, 245, 233)), false);
-        addTableRow(payments, 4, "Nov 01", "₱4500", pillLabel("Overdue", new Color(183, 28, 28), new Color(255, 235, 238)), false);
-        addTableRow(payments, 5, "Oct 01", "₱4500", pillLabel("Paid", new Color(46, 125, 50), new Color(232, 245, 233)), false);
+        // Load real payment rows for current user (latest first). Ensure current month row exists.
+        int rowIdx = 2;
+        LocalDate now = LocalDate.now();
+        String monthKey = now.toString().substring(0,7); // YYYY-MM
+        try (Connection c = DBUtil.getConnection()) {
+            // Ensure a payment row exists for this tenant for the current month
+            String upsert = "INSERT INTO payments (user_id, month_key, amount, status) VALUES (?,?,600,'unpaid') " +
+                    "ON DUPLICATE KEY UPDATE amount=VALUES(amount)";
+            try (PreparedStatement ps = c.prepareStatement(upsert)) {
+                ps.setInt(1, user.getId());
+                ps.setString(2, monthKey);
+                ps.executeUpdate();
+            }
 
-        // Maintenance Requests card
-        JPanel maint = createCardPanel();
-        maint.setLayout(new GridBagLayout());
+            String q = "SELECT month_key, amount, status FROM payments WHERE user_id=? ORDER BY month_key DESC LIMIT 12";
+            try (PreparedStatement ps = c.prepareStatement(q)) {
+                ps.setInt(1, user.getId());
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        String mk = rs.getString(1);
+                        LocalDate d = LocalDate.parse(mk + "-01");
+                        String date = d.getMonth().getDisplayName(TextStyle.SHORT, Locale.getDefault()) + " " + d.getYear();
+                        String amountTxt = "\u20B1" + rs.getBigDecimal(2).setScale(0);
+                        String st = rs.getString(3);
+                        Color fg;
+                        Color bg;
+                        if ("paid".equalsIgnoreCase(st)) { fg = new Color(46,125,50); bg = new Color(232,245,233); }
+                        else if ("overdue".equalsIgnoreCase(st)) { fg = new Color(183,28,28); bg = new Color(255,235,238); }
+                        else { fg = new Color(183,109,0); bg = new Color(255,248,225); }
+                        addTableRow(payments, rowIdx++, date, amountTxt, pillLabel(capitalize(st), fg, bg), false);
+                    }
+                }
+            }
+        } catch (SQLException ignore) { }
+        if (rowIdx == 2) {
+            addTableRow(payments, rowIdx, "No payments yet.", "", pillLabel("-", Color.DARK_GRAY, new Color(240,240,240)), false);
+        }
+
+        // Maintenance Requests card (auto-refreshable)
+        maintPanel = createCardPanel();
+        maintPanel.setLayout(new GridBagLayout());
         JLabel mTitle = new JLabel("Maintenance Requests"); mTitle.setFont(titleFont);
         GridBagConstraints mg = new GridBagConstraints();
         mg.gridx = 0; mg.gridy = 0; mg.gridwidth = 2; mg.anchor = GridBagConstraints.WEST; mg.insets = new Insets(0,0,8,0);
-        maint.add(mTitle, mg);
-        addTableRow(maint, 1, "Date", "Status", "", true);
-        addTableRow(maint, 2, "Jan 01", "Leaky faucet", pillLabel("Pending", new Color(183, 109, 0), new Color(255, 248, 225)), false);
-        addTableRow(maint, 3, "Nov 1", "Broken window", pillLabel("Approved", new Color(0, 121, 107), new Color(224, 242, 241)), false);
+        maintPanel.add(mTitle, mg);
+        reloadMaintenancePanel();
 
-        // Announcements card
+        // Announcements card (from DB)
         JPanel ann = createCardPanel();
         ann.setLayout(new GridBagLayout());
         JLabel aTitle = new JLabel("Announcements"); aTitle.setFont(titleFont);
-        JLabel by = new JLabel("Admin   Apr 20"); by.setFont(mainFont);
-        JLabel msg = new JLabel("Please keep the noise level down in the evenings"); msg.setFont(mainFont);
         GridBagConstraints ag = new GridBagConstraints();
-        ag.gridx = 0; ag.gridy = 0; ag.anchor = GridBagConstraints.WEST; ag.insets = new Insets(0,0,6,0);
+        ag.gridx = 0; ag.gridy = 0; ag.gridwidth = 2; ag.anchor = GridBagConstraints.WEST; ag.insets = new Insets(0,0,8,0);
         ann.add(aTitle, ag);
-        ag.gridy = 1; ann.add(by, ag);
-        ag.gridy = 2; ann.add(msg, ag);
+        int count = 0;
+        try (Connection c = DBUtil.getConnection();
+             PreparedStatement ps = c.prepareStatement("SELECT a.created_at, a.title, a.body, u.username FROM announcements a JOIN users u ON u.id=a.created_by ORDER BY a.created_at DESC, a.id DESC LIMIT 6");
+             ResultSet rs = ps.executeQuery()) {
+            DateTimeFormatter df = DateTimeFormatter.ofPattern("MMM d");
+            while (rs.next()) {
+                Timestamp ts = rs.getTimestamp(1);
+                String date = ts != null ? ts.toLocalDateTime().toLocalDate().format(df) : "";
+                String title = rs.getString(2);
+                String body = rs.getString(3);
+                String author = rs.getString(4);
+
+                JPanel block = new JPanel(new GridBagLayout());
+                block.setOpaque(false);
+                GridBagConstraints ib = new GridBagConstraints();
+                ib.gridx = 0; ib.gridy = 0; ib.weightx = 1; ib.anchor = GridBagConstraints.WEST; ib.insets = new Insets(0,0,2,0);
+                JLabel titleLbl = new JLabel(title); titleLbl.setFont(mainFont.deriveFont(Font.BOLD));
+                block.add(titleLbl, ib);
+                ib.gridy = 1; ib.insets = new Insets(0,0,6,0);
+                JLabel meta = new JLabel(author + "   " + date); meta.setFont(mainFont);
+                block.add(meta, ib);
+                ib.gridy = 2; ib.insets = new Insets(0,0,0,0);
+                JComponent bodyChip = pillLabel(body, new Color(102, 60, 0), new Color(255, 248, 225));
+                block.add(bodyChip, ib);
+
+                GridBagConstraints slot = new GridBagConstraints();
+                slot.gridx = count % 2; slot.gridy = 1 + (count / 2);
+                slot.weightx = 0.5; slot.fill = GridBagConstraints.HORIZONTAL;
+                // symmetric gutters: left column has right gutter, right column has left gutter
+                int leftGutter = (count % 2 == 1) ? 8 : 0;
+                int rightGutter = (count % 2 == 0) ? 8 : 0;
+                slot.insets = new Insets(0, leftGutter, 12, rightGutter);
+                ann.add(block, slot);
+                count++;
+            }
+            if (count == 0) {
+                GridBagConstraints empty = new GridBagConstraints();
+                empty.gridx = 0; empty.gridy = 1; empty.gridwidth = 2; empty.anchor = GridBagConstraints.WEST;
+                ann.add(new JLabel("No announcements yet."), empty);
+            }
+        } catch (SQLException ignore) {
+            GridBagConstraints err = new GridBagConstraints();
+            err.gridx = 0; err.gridy = 1; err.gridwidth = 2; err.anchor = GridBagConstraints.WEST;
+            ann.add(new JLabel("Unable to load announcements."), err);
+        }
 
         // Layout grid
         g.gridy = 2; g.gridwidth = 1; g.weightx = 0.5; g.insets = new Insets(0, 0, 16, 8); g.fill = GridBagConstraints.BOTH; g.weighty = 0;
         container.add(payments, g);
         g.gridx = 1; g.insets = new Insets(0, 8, 16, 0);
-        container.add(maint, g);
+        container.add(maintPanel, g);
 
         g.gridx = 0; g.gridy = 3; g.gridwidth = 2; g.insets = new Insets(0, 0, 0, 0); g.weighty = 1;
         container.add(ann, g);
@@ -231,6 +350,59 @@ public class TenantFrame extends JFrame {
                 BorderFactory.createEmptyBorder(16, 16, 16, 16)
         ));
         return p;
+    }
+
+    private void reloadMaintenancePanel() {
+        if (maintPanel == null) return;
+        maintPanel.removeAll();
+        maintPanel.setLayout(new GridBagLayout());
+        JLabel mTitle = new JLabel("Maintenance Requests"); mTitle.setFont(titleFont);
+        GridBagConstraints mg = new GridBagConstraints();
+        mg.gridx = 0; mg.gridy = 0; mg.gridwidth = 2; mg.anchor = GridBagConstraints.WEST; mg.insets = new Insets(0,0,8,0);
+        maintPanel.add(mTitle, mg);
+        addTableRow(maintPanel, 1, "Date", "Description", new JLabel("Status"), new JLabel("Actions"), true);
+        int mRow = 2;
+        try (Connection c = DBUtil.getConnection();
+             PreparedStatement ps = c.prepareStatement("SELECT id, created_at, description, status FROM maintenance_requests WHERE user_id=? ORDER BY created_at DESC, id DESC LIMIT 12")) {
+            ps.setInt(1, currentUser.getId());
+            try (ResultSet rs = ps.executeQuery()) {
+                DateTimeFormatter df = DateTimeFormatter.ofPattern("MMM d");
+                while (rs.next()) {
+                    int id = rs.getInt(1);
+                    Timestamp ts = rs.getTimestamp(2);
+                    String date = ts != null ? ts.toLocalDateTime().toLocalDate().format(df) : "";
+                    String desc = rs.getString(3);
+                    String st = rs.getString(4);
+                    Color fg = new Color(183, 109, 0);
+                    Color bg = new Color(255, 248, 225);
+                    if ("approved".equalsIgnoreCase(st)) { fg = new Color(0,121,107); bg = new Color(224,242,241); }
+                    if ("resolved".equalsIgnoreCase(st)) { fg = new Color(46,125,50); bg = new Color(232,245,233); }
+                    JComponent statusPill = pillLabel(capitalize(st), fg, bg);
+                    JButton btnDel = new JButton("Delete");
+                    btnDel.setFocusPainted(false);
+                    btnDel.addActionListener(e -> {
+                        int confirm = JOptionPane.showConfirmDialog(this, "Delete this request?", "Confirm", JOptionPane.OK_CANCEL_OPTION);
+                        if (confirm == JOptionPane.OK_OPTION) {
+                            String del = "DELETE FROM maintenance_requests WHERE id=? AND user_id=?";
+                            try (Connection dc = DBUtil.getConnection(); PreparedStatement dps = dc.prepareStatement(del)) {
+                                dps.setInt(1, id);
+                                dps.setInt(2, currentUser.getId());
+                                dps.executeUpdate();
+                                reloadMaintenancePanel();
+                            } catch (SQLException ex) {
+                                JOptionPane.showMessageDialog(this, ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+                            }
+                        }
+                    });
+                    addTableRow(maintPanel, mRow++, date, desc, statusPill, btnDel, false);
+                }
+            }
+        } catch (SQLException ignore) { }
+        if (mRow == 2) {
+            addTableRow(maintPanel, mRow, "No requests yet.", "", pillLabel("-", Color.DARK_GRAY, new Color(240,240,240)), new JLabel(""), false);
+        }
+        maintPanel.revalidate();
+        maintPanel.repaint();
     }
 
     private void addTableRow(JPanel parent, int row, String c1, String c2, String c3, boolean header) {
@@ -252,6 +424,22 @@ public class TenantFrame extends JFrame {
         g.gridx = 1; g.insets = new Insets(4, 24, 4, 24); parent.add(l2, g);
         g.gridx = 2; g.weightx = 1; g.anchor = GridBagConstraints.EAST; parent.add(c3, g);
     }
+
+    private void addTableRow(JPanel parent, int row, String c1, String c2, JComponent c3, JComponent c4, boolean header) {
+        GridBagConstraints g = new GridBagConstraints();
+        g.gridy = row; g.insets = new Insets(4, 0, 4, 0);
+        JLabel l1 = new JLabel(c1); JLabel l2 = new JLabel(c2);
+        if (header) { l1.setFont(l1.getFont().deriveFont(Font.BOLD)); l2.setFont(l2.getFont().deriveFont(Font.BOLD));
+            if (c3 instanceof JLabel) { c3.setFont(c3.getFont().deriveFont(Font.BOLD)); }
+            if (c4 instanceof JLabel) { c4.setFont(c4.getFont().deriveFont(Font.BOLD)); }
+        }
+        g.gridx = 0; g.anchor = GridBagConstraints.WEST; parent.add(l1, g);
+        g.gridx = 1; g.insets = new Insets(4, 24, 4, 24); parent.add(l2, g);
+        g.gridx = 2; parent.add(c3, g);
+        g.gridx = 3; g.weightx = 1; g.anchor = GridBagConstraints.EAST; parent.add(c4, g);
+    }
+
+    private String capitalize(String s) { if (s==null||s.isEmpty()) return s; return Character.toUpperCase(s.charAt(0))+s.substring(1); }
 
     private JComponent pillLabel(String text, Color fg, Color bg) {
         JLabel l = new JLabel(text);
