@@ -260,13 +260,18 @@ public class AdminFrame extends JFrame {
                         BorderFactory.createEmptyBorder(6, 12, 6, 12)
                 ));
                 pill.setPreferredSize(new Dimension(200, 28));
+                pill.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
                 // color by occupancy vs capacity
+                String roomName = label;
+                int cap = 0; int occ = 0;
                 if (idx-1 < rooms.size()) {
                     RoomItem it = rooms.get(idx-1);
-                    // Update pill text to include available beds
+                    // Show only room name in dashboard; beds info will be shown on click
                     int avail = Math.max(it.capacity - it.occupied, 0);
-                    pill.setText(it.name + " (" + avail + " available)");
-                    pill.setToolTipText(pill.getText());
+                    roomName = it.name;
+                    cap = it.capacity;
+                    occ = it.occupied;
+                    pill.setText(roomName);
                     if (it.occupied == 0) {
                         pill.setBackground(greenBg); pill.setForeground(greenFg);
                     } else if (it.occupied < it.capacity) {
@@ -277,6 +282,7 @@ public class AdminFrame extends JFrame {
                 } else {
                     pill.setBackground(greenBg); pill.setForeground(greenFg);
                 }
+                final String fRoom = roomName; final int fCap = cap; final int fOcc = occ;
                 // subtle hover effect
                 pill.addMouseListener(new java.awt.event.MouseAdapter() {
                     Color origBg = pill.getBackground();
@@ -285,6 +291,16 @@ public class AdminFrame extends JFrame {
                         pill.setBackground(origBg.brighter());
                     }
                     @Override public void mouseExited(java.awt.event.MouseEvent e) { pill.setBackground(origBg); }
+                    @Override public void mouseClicked(java.awt.event.MouseEvent e) {
+                        // On click: show tenant names assigned to this room
+                        String rn = fRoom;
+                        List<String> occNames = getRoomOccupants(rn);
+                        String bedsInfo = "Beds: " + fOcc + "/" + fCap + " (" + Math.max(fCap - fOcc, 0) + " available)";
+                        String msg;
+                        if (occNames.isEmpty()) msg = bedsInfo + "\n\nNo tenants assigned to " + rn + ".";
+                        else msg = bedsInfo + "\n\nTenants in " + rn + ":\n - " + String.join("\n - ", occNames);
+                        JOptionPane.showMessageDialog(AdminFrame.this, msg, "Room Occupants", JOptionPane.INFORMATION_MESSAGE);
+                    }
                 });
                 GridBagConstraints cg = new GridBagConstraints();
                 cg.gridx = c; cg.gridy = r + 2; cg.insets = new Insets(4,4,4,4); cg.anchor = GridBagConstraints.CENTER; cg.fill = GridBagConstraints.HORIZONTAL; cg.weightx = 1.0;
@@ -611,6 +627,21 @@ public class AdminFrame extends JFrame {
             if (rs.next()) return rs.getInt(1);
         } catch (SQLException ignored) { }
         return 0;
+    }
+
+    private List<String> getRoomOccupants(String roomNumber) {
+        List<String> names = new ArrayList<>();
+        String q = "SELECT u.username FROM rooms r " +
+                "JOIN room_assignments ra ON ra.room_id = r.id " +
+                "JOIN users u ON u.id = ra.user_id " +
+                "WHERE r.room_number = ? ORDER BY u.username";
+        try (Connection c = DBUtil.getConnection(); PreparedStatement ps = c.prepareStatement(q)) {
+            ps.setString(1, roomNumber);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) names.add(rs.getString(1));
+            }
+        } catch (SQLException ignored) { }
+        return names;
     }
 
     static class RoomItem {
