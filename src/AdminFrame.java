@@ -8,12 +8,12 @@ import java.util.List;
 import java.text.SimpleDateFormat;
 
 public class AdminFrame extends JFrame {
-    private final Font mainFont = new Font("Segoe UI", Font.PLAIN, 14);
-    private final Font titleFont = new Font("Segoe UI", Font.BOLD, 20);
+    private final Font mainFont = new Font("Segoe UI", Font.PLAIN, 15);
+    private final Font titleFont = new Font("Segoe UI", Font.BOLD, 22);
     private final Color sidebarBg = new Color(13, 71, 161);
     private final Color sidebarItemActive = new Color(33, 150, 243);
-    private final Color pageBg = new Color(245, 247, 250);
-    private final Color cardBorder = new Color(220, 225, 230);
+    private final Color pageBg = new Color(246, 248, 252);
+    private final Color cardBorder = new Color(224, 229, 235);
     private final User currentUser;
 
     public AdminFrame(User user) {
@@ -31,7 +31,8 @@ public class AdminFrame extends JFrame {
     }
 
     private int getMonthlyIncome() {
-        String q = "SELECT COALESCE(SUM(amount),0) FROM payments WHERE status='paid' AND month_key=?";
+        // Expected income for the month: sum of all charges regardless of status
+        String q = "SELECT COALESCE(SUM(amount),0) FROM payments WHERE month_key=?";
         String monthKey = java.time.LocalDate.now().toString().substring(0,7);
         try (Connection c = DBUtil.getConnection(); PreparedStatement ps = c.prepareStatement(q)) {
             ps.setString(1, monthKey);
@@ -46,6 +47,17 @@ public class AdminFrame extends JFrame {
         try (Connection c = DBUtil.getConnection(); PreparedStatement ps = c.prepareStatement(q)) {
             ps.setString(1, monthKey);
             try (ResultSet rs = ps.executeQuery()) { if (rs.next()) return rs.getInt(1); }
+        } catch (SQLException ignored) { }
+        return 0;
+    }
+
+    private int getPaidIncome() {
+        // Paid income for the month: sum of amounts with status = 'paid'
+        String q = "SELECT COALESCE(SUM(amount),0) FROM payments WHERE status='paid' AND month_key=?";
+        String monthKey = java.time.LocalDate.now().toString().substring(0,7);
+        try (Connection c = DBUtil.getConnection(); PreparedStatement ps = c.prepareStatement(q)) {
+            ps.setString(1, monthKey);
+            try (ResultSet rs = ps.executeQuery()) { if (rs.next()) return rs.getBigDecimal(1).intValue(); }
         } catch (SQLException ignored) { }
         return 0;
     }
@@ -155,7 +167,7 @@ public class AdminFrame extends JFrame {
 
         // Header: Admin Dashboard + user avatar/name + Logout
         JLabel header = new JLabel("Admin Dashboard");
-        header.setFont(new Font("Segoe UI", Font.BOLD, 24));
+        header.setFont(new Font("Segoe UI", Font.BOLD, 26));
         g.gridx = 0; g.gridy = 0; g.gridwidth = 1; g.weightx = 1; g.anchor = GridBagConstraints.WEST; g.insets = new Insets(0, 0, 16, 0);
         container.add(header, g);
 
@@ -167,6 +179,9 @@ public class AdminFrame extends JFrame {
         btnLogout.setBackground(new Color(33, 150, 243));
         btnLogout.setForeground(Color.WHITE);
         btnLogout.setFocusPainted(false);
+        btnLogout.setBorder(new RoundedBorder(new Color(33,150,243), 10));
+        btnLogout.setBorderPainted(true);
+        btnLogout.setOpaque(true);
         btnLogout.addActionListener(e -> {
             SwingUtilities.invokeLater(() -> {
                 JFrame f = new LoginFrame();
@@ -190,6 +205,7 @@ public class AdminFrame extends JFrame {
         addStatCard(cards, 1, 0, "Total Rooms / Available Rooms", rc[0] + " / " + rc[1]);
         addStatCard(cards, 2, 0, "Monthly Income", "\u20B1" + getMonthlyIncome());
         addStatCard(cards, 3, 0, "Pending Payments", String.valueOf(getPendingPayments()));
+        addStatCard(cards, 4, 0, "Total Income (Paid)", "\u20B1" + getPaidIncome());
         g.gridx = 0; g.gridy = 1; g.gridwidth = 2; g.fill = GridBagConstraints.HORIZONTAL; g.weightx = 1; g.insets = new Insets(0,0,16,0);
         container.add(cards, g);
 
@@ -197,11 +213,29 @@ public class AdminFrame extends JFrame {
         JPanel roomStatus = createCardPanel();
         roomStatus.setLayout(new GridBagLayout());
         JLabel rsTitle = new JLabel("Room Status"); rsTitle.setFont(titleFont);
-        GridBagConstraints rg = new GridBagConstraints();
-        rg.gridx = 0; rg.gridy = 0; rg.gridwidth = 3; rg.anchor = GridBagConstraints.WEST; rg.insets = new Insets(0,0,8,0);
-        roomStatus.add(rsTitle, rg);
         // dynamic grid of rooms with colored labels (live from DB)
         List<RoomItem> rooms = fetchRooms(Integer.MAX_VALUE);
+        // total available beds summary
+        int totalAvailBeds = 0; for (RoomItem it : rooms) totalAvailBeds += Math.max(it.capacity - it.occupied, 0);
+        JLabel lbAvail = new JLabel("Total Available Beds: " + totalAvailBeds);
+        lbAvail.setFont(mainFont);
+        JPanel rsHeader = new JPanel(new BorderLayout());
+        rsHeader.setOpaque(false);
+        rsHeader.add(rsTitle, BorderLayout.WEST);
+        rsHeader.add(lbAvail, BorderLayout.EAST);
+        GridBagConstraints rgh = new GridBagConstraints();
+        rgh.gridx = 0; rgh.gridy = 0; rgh.gridwidth = 3; rgh.weightx = 1; rgh.insets = new Insets(0,0,8,0); rgh.fill = GridBagConstraints.HORIZONTAL;
+        roomStatus.add(rsHeader, rgh);
+        // legend (Empty / Partial / Full)
+        JPanel legend = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        legend.setOpaque(false);
+        legend.add(pillLabel("Empty", new Color(46,125,50), new Color(232,245,233)));
+        legend.add(pillLabel("Partial", new Color(183,109,0), new Color(255,248,225)));
+        legend.add(pillLabel("Full", new Color(183,28,28), new Color(255,235,238)));
+        GridBagConstraints rg3 = new GridBagConstraints();
+        rg3.gridx = 0; rg3.gridy = 1; rg3.gridwidth = 3; rg3.anchor = GridBagConstraints.WEST; rg3.insets = new Insets(0,0,8,0);
+        roomStatus.add(legend, rg3);
+
         int idx = 0;
         Color greenBg = new Color(232,245,233);   // empty
         Color greenFg = new Color(46,125,50);
@@ -220,10 +254,19 @@ public class AdminFrame extends JFrame {
                 if (label.isEmpty()) break;
                 JLabel pill = new JLabel(label, SwingConstants.CENTER);
                 pill.setOpaque(true);
-                pill.setBorder(BorderFactory.createEmptyBorder(6, 12, 6, 12));
+                pill.setFont(mainFont);
+                pill.setBorder(BorderFactory.createCompoundBorder(
+                        new RoundedBorder(new Color(230,230,230), 12),
+                        BorderFactory.createEmptyBorder(6, 12, 6, 12)
+                ));
+                pill.setPreferredSize(new Dimension(200, 28));
                 // color by occupancy vs capacity
                 if (idx-1 < rooms.size()) {
                     RoomItem it = rooms.get(idx-1);
+                    // Update pill text to include available beds
+                    int avail = Math.max(it.capacity - it.occupied, 0);
+                    pill.setText(it.name + " (" + avail + " available)");
+                    pill.setToolTipText(pill.getText());
                     if (it.occupied == 0) {
                         pill.setBackground(greenBg); pill.setForeground(greenFg);
                     } else if (it.occupied < it.capacity) {
@@ -234,8 +277,17 @@ public class AdminFrame extends JFrame {
                 } else {
                     pill.setBackground(greenBg); pill.setForeground(greenFg);
                 }
+                // subtle hover effect
+                pill.addMouseListener(new java.awt.event.MouseAdapter() {
+                    Color origBg = pill.getBackground();
+                    @Override public void mouseEntered(java.awt.event.MouseEvent e) {
+                        origBg = pill.getBackground();
+                        pill.setBackground(origBg.brighter());
+                    }
+                    @Override public void mouseExited(java.awt.event.MouseEvent e) { pill.setBackground(origBg); }
+                });
                 GridBagConstraints cg = new GridBagConstraints();
-                cg.gridx = c; cg.gridy = r + 1; cg.insets = new Insets(4,4,4,4); cg.anchor = GridBagConstraints.CENTER;
+                cg.gridx = c; cg.gridy = r + 2; cg.insets = new Insets(4,4,4,4); cg.anchor = GridBagConstraints.CENTER; cg.fill = GridBagConstraints.HORIZONTAL; cg.weightx = 1.0;
                 roomStatus.add(pill, cg);
             }
         }
@@ -248,11 +300,13 @@ public class AdminFrame extends JFrame {
         paymentOverview.add(poTitle, pg);
         int[] paySums = getPaymentSums();
         paymentOverview.add(simpleBarChart(paySums[0], paySums[1]), gcAt(0,1,1,1, new Insets(0,0,8,0)));
-        paymentOverview.add(simplePieLegend(), gcAt(1,1,1,1, new Insets(0,16,8,0)));
+        GridBagConstraints lg = new GridBagConstraints();
+        lg.gridx = 1; lg.gridy = 1; lg.weightx = 0; lg.weighty = 1; lg.insets = new Insets(0,16,8,0); lg.anchor = GridBagConstraints.NORTHWEST; lg.fill = GridBagConstraints.NONE;
+        paymentOverview.add(simplePieLegend(), lg);
 
-        g.gridx = 0; g.gridy = 2; g.gridwidth = 1; g.weightx = 0.5; g.insets = new Insets(0, 0, 16, 8); g.fill = GridBagConstraints.BOTH; g.weighty = 0;
+        g.gridx = 0; g.gridy = 2; g.gridwidth = 1; g.weightx = 0.5; g.insets = new Insets(0, 0, 16, 8); g.fill = GridBagConstraints.BOTH; g.weighty = 0.25;
         container.add(roomStatus, g);
-        g.gridx = 1; g.gridy = 2; g.insets = new Insets(0, 8, 16, 0);
+        g.gridx = 1; g.gridy = 2; g.insets = new Insets(0, 8, 16, 0); g.weighty = 0.25; g.fill = GridBagConstraints.BOTH;
         container.add(paymentOverview, g);
 
         // Bottom row: Recent Transactions and Recent Maintenance Requests
@@ -260,15 +314,19 @@ public class AdminFrame extends JFrame {
         trans.setLayout(new GridBagLayout());
         JLabel tTitle = new JLabel("Recent Transactions"); tTitle.setFont(titleFont);
         GridBagConstraints tg = new GridBagConstraints();
-        tg.gridx = 0; tg.gridy = 0; tg.gridwidth = 4; tg.anchor = GridBagConstraints.WEST; tg.insets = new Insets(0,0,8,0);
+        tg.gridx = 0; tg.gridy = 0; tg.gridwidth = 1; tg.anchor = GridBagConstraints.WEST; tg.insets = new Insets(0,0,8,0);
         trans.add(tTitle, tg);
-        addTableRow(trans, 1, "Date", "Tenant", "Amount", pillLabel("Status", Color.DARK_GRAY, new Color(240,240,240)), true);
+        // scrollable rows container
+        JPanel transRows = new JPanel(new GridBagLayout());
+        transRows.setOpaque(false);
+        transRows.setBorder(BorderFactory.createEmptyBorder(0, 8, 0, 8));
+        addTableRow(transRows, 0, "Date", "Tenant", "Amount", pillLabel("Status", Color.DARK_GRAY, new Color(240,240,240)), true);
         // Load recent transactions from payments table (latest paid first, then unpaid/overdue)
         String qrt = "SELECT p.paid_at, u.username, p.amount, p.status FROM payments p " +
                 "JOIN users u ON u.id=p.user_id " +
-                "ORDER BY (p.paid_at IS NULL), p.paid_at DESC, p.id DESC LIMIT 5";
+                "ORDER BY (p.paid_at IS NULL), p.paid_at DESC, p.id DESC LIMIT 20";
         try (Connection c = DBUtil.getConnection(); PreparedStatement ps = c.prepareStatement(qrt); ResultSet rs = ps.executeQuery()) {
-            int row = 2; SimpleDateFormat df = new SimpleDateFormat("MMM dd");
+            int row = 1; SimpleDateFormat df = new SimpleDateFormat("MMM dd");
             while (rs.next()) {
                 Timestamp ts = rs.getTimestamp(1);
                 String date = ts != null ? df.format(ts) : "-";
@@ -280,21 +338,38 @@ public class AdminFrame extends JFrame {
                 if ("paid".equalsIgnoreCase(st)) { fg = new Color(46,125,50); bg = new Color(232,245,233); }
                 else if ("overdue".equalsIgnoreCase(st)) { fg = new Color(183,28,28); bg = new Color(255,235,238); }
                 else { fg = new Color(183,109,0); bg = new Color(255,248,225); }
-                addTableRow(trans, row++, date, tenant, amount, pillLabel(capitalize(st), fg, bg), false);
+                addTableRow(transRows, row++, date, tenant, amount, pillLabel(capitalize(st), fg, bg), false);
             }
         } catch (SQLException ignore) { }
+        JScrollPane transScroll = new JScrollPane(transRows);
+        transScroll.setBorder(null);
+        transScroll.setOpaque(false);
+        transScroll.getViewport().setOpaque(false);
+        transScroll.setPreferredSize(new Dimension(0, 200));
+        transScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        transScroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
+        transScroll.setWheelScrollingEnabled(true);
+        transScroll.setViewportBorder(null);
+        transScroll.getVerticalScrollBar().setUnitIncrement(16);
+        GridBagConstraints tsg = new GridBagConstraints();
+        tsg.gridx = 0; tsg.gridy = 1; tsg.weightx = 1; tsg.weighty = 1; tsg.fill = GridBagConstraints.BOTH;
+        trans.add(transScroll, tsg);
 
         JPanel maint = createCardPanel();
         maint.setLayout(new GridBagLayout());
         JLabel mTitle = new JLabel("Recent Maintenance Requests"); mTitle.setFont(titleFont);
         GridBagConstraints mg = new GridBagConstraints();
-        mg.gridx = 0; mg.gridy = 0; mg.gridwidth = 3; mg.anchor = GridBagConstraints.WEST; mg.insets = new Insets(0,0,8,0);
+        mg.gridx = 0; mg.gridy = 0; mg.gridwidth = 1; mg.anchor = GridBagConstraints.WEST; mg.insets = new Insets(0,0,8,0);
         maint.add(mTitle, mg);
-        addTableRow(maint, 1, "Tenant", "Issue", "", pillLabel("Status", Color.DARK_GRAY, new Color(240,240,240)), true);
+        // scrollable rows container
+        JPanel maintRows = new JPanel(new GridBagLayout());
+        maintRows.setOpaque(false);
+        maintRows.setBorder(BorderFactory.createEmptyBorder(0, 8, 0, 8));
+        addTableRow(maintRows, 0, "Tenant", "Issue", "", pillLabel("Status", Color.DARK_GRAY, new Color(240,240,240)), true);
         String qrm = "SELECT u.username, mr.description, mr.status FROM maintenance_requests mr " +
-                "JOIN users u ON u.id=mr.user_id ORDER BY mr.created_at DESC, mr.id DESC LIMIT 5";
+                "JOIN users u ON u.id=mr.user_id ORDER BY mr.created_at DESC, mr.id DESC LIMIT 50";
         try (Connection c = DBUtil.getConnection(); PreparedStatement ps = c.prepareStatement(qrm); ResultSet rs = ps.executeQuery()) {
-            int row = 2;
+            int row = 1;
             while (rs.next()) {
                 String tenant = rs.getString(1);
                 String issue = rs.getString(2);
@@ -303,14 +378,28 @@ public class AdminFrame extends JFrame {
                 Color bg = new Color(255,248,225);
                 if ("approved".equalsIgnoreCase(st)) { fg = new Color(0,121,107); bg = new Color(224,242,241); }
                 if ("resolved".equalsIgnoreCase(st)) { fg = new Color(46,125,50); bg = new Color(232,245,233); }
-                addTableRow(maint, row++, tenant, issue, "", pillLabel(capitalize(st), fg, bg), false);
+                addTableRow(maintRows, row++, tenant, issue, "", pillLabel(capitalize(st), fg, bg), false);
             }
         } catch (SQLException ignore) { }
+        JScrollPane maintScroll = new JScrollPane(maintRows);
+        maintScroll.setBorder(null);
+        maintScroll.setOpaque(false);
+        maintScroll.getViewport().setOpaque(false);
+        maintScroll.setPreferredSize(new Dimension(0, 200));
+        maintScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        maintScroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
+        maintScroll.setWheelScrollingEnabled(true);
+        maintScroll.setViewportBorder(null);
+        maintScroll.getVerticalScrollBar().setUnitIncrement(16);
+        GridBagConstraints msg = new GridBagConstraints();
+        msg.gridx = 0; msg.gridy = 1; msg.weightx = 1; msg.weighty = 1; msg.fill = GridBagConstraints.BOTH;
+        maint.add(maintScroll, msg);
 
-        g.gridx = 0; g.gridy = 3; g.gridwidth = 1; g.weightx = 0.5; g.insets = new Insets(0, 0, 0, 8); g.fill = GridBagConstraints.BOTH; g.weighty = 1;
-        container.add(trans, g);
-        g.gridx = 1; g.gridy = 3; g.insets = new Insets(0, 8, 0, 0);
+        // Swap positions: Maintenance on the left (wider), Transactions on the right (narrower)
+        g.gridx = 0; g.gridy = 3; g.gridwidth = 1; g.weightx = 0.6; g.insets = new Insets(0, 0, 0, 8); g.fill = GridBagConstraints.BOTH; g.weighty = 1;
         container.add(maint, g);
+        g.gridx = 1; g.gridy = 3; g.insets = new Insets(0, 8, 0, 0); g.weightx = 0.4; g.fill = GridBagConstraints.BOTH;
+        container.add(trans, g);
 
         return container;
     }
@@ -319,7 +408,29 @@ public class AdminFrame extends JFrame {
         JPanel card = createCardPanel();
         card.setLayout(new GridBagLayout());
         JLabel l = new JLabel(label); l.setFont(mainFont);
-        JLabel v = new JLabel(value); v.setFont(new Font("Segoe UI", Font.BOLD, 22));
+        JLabel v = new JLabel(value); v.setFont(new Font("Segoe UI", Font.BOLD, 24));
+        // Special styling for Monthly Income card
+        if ("Monthly Income".equals(label)) {
+            card.setBackground(new Color(232,245,233)); // light green
+            l.setForeground(new Color(46,125,50));
+            v.setForeground(new Color(46,125,50));
+        }
+        // Conditional styling for Total Income (Paid): red if not all paid
+        if ("Total Income (Paid)".equals(label)) {
+            try {
+                int expected = getMonthlyIncome();
+                int paid = getPaidIncome();
+                if (paid < expected) {
+                    card.setBackground(new Color(255,235,238)); // light red
+                    l.setForeground(new Color(183,28,28));
+                    v.setForeground(new Color(183,28,28));
+                } else if (paid == expected) {
+                    card.setBackground(new Color(232,245,233)); // light green
+                    l.setForeground(new Color(46,125,50));
+                    v.setForeground(new Color(46,125,50));
+                }
+            } catch (Exception ignore) { }
+        }
         GridBagConstraints cg = new GridBagConstraints();
         cg.gridx = 0; cg.gridy = 0; cg.anchor = GridBagConstraints.WEST; card.add(l, cg);
         cg.gridy = 1; cg.insets = new Insets(4,0,0,0); card.add(v, cg);
@@ -330,24 +441,34 @@ public class AdminFrame extends JFrame {
     }
 
     private JPanel createCardPanel() {
-        JPanel p = new JPanel();
-        p.setBackground(Color.WHITE);
-        p.setBorder(BorderFactory.createCompoundBorder(
-                new RoundedBorder(cardBorder, 12),
-                BorderFactory.createEmptyBorder(16, 16, 16, 16)
-        ));
-        return p;
+        ShadowPanel sp = new ShadowPanel(14, cardBorder, new Color(0,0,0,28));
+        sp.setOpaque(false);
+        sp.setBackground(Color.WHITE);
+        sp.setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
+        return sp;
     }
 
     private void addTableRow(JPanel parent, int row, String c1, String c2, String c3, JComponent c4, boolean header) {
         GridBagConstraints g = new GridBagConstraints();
         g.gridy = row; g.insets = new Insets(4, 0, 4, 0);
-        JLabel l1 = new JLabel(c1); JLabel l2 = new JLabel(c2); JLabel l3 = new JLabel(c3);
+        // Truncate overly long second-column text (Issue/Tenant) to avoid overlap; show full via tooltip
+        String d2 = c2;
+        if (!header && c2 != null && c2.length() > 42) {
+            d2 = c2.substring(0, 42) + "…";
+        }
+        JLabel l1 = new JLabel(c1);
+        JLabel l2 = new JLabel(d2);
+        if (!header && d2.endsWith("…")) l2.setToolTipText(c2);
+        JLabel l3 = new JLabel(c3);
         if (header) { l1.setFont(l1.getFont().deriveFont(Font.BOLD)); l2.setFont(l2.getFont().deriveFont(Font.BOLD)); l3.setFont(l3.getFont().deriveFont(Font.BOLD)); }
-        g.gridx = 0; g.anchor = GridBagConstraints.WEST; parent.add(l1, g);
-        g.gridx = 1; g.insets = new Insets(4, 24, 4, 24); parent.add(l2, g);
-        g.gridx = 2; parent.add(l3, g);
-        g.gridx = 3; g.weightx = 1; g.anchor = GridBagConstraints.EAST; parent.add(c4, g);
+        // Col 0 (Date/Tenant): fixed
+        g.gridx = 0; g.anchor = GridBagConstraints.WEST; g.weightx = 0; g.fill = GridBagConstraints.NONE; g.insets = new Insets(4, 8, 4, 0); parent.add(l1, g);
+        // Col 1 (Tenant/Issue): flexible, takes remaining width
+        g.gridx = 1; g.insets = new Insets(4, 16, 4, 16); g.weightx = 1; g.fill = GridBagConstraints.HORIZONTAL; parent.add(l2, g);
+        // Col 2 (Amount/Spacer): fixed with right margin before Status
+        g.gridx = 2; g.insets = new Insets(4, 0, 4, 16); g.weightx = 0; g.fill = GridBagConstraints.NONE; parent.add(l3, g);
+        // Col 3 (Status pill): fixed, aligned right
+        g.gridx = 3; g.weightx = 0; g.fill = GridBagConstraints.NONE; g.anchor = GridBagConstraints.EAST; parent.add(c4, g);
     }
 
     private JComponent pillLabel(String text, Color fg, Color bg) {
@@ -355,13 +476,16 @@ public class AdminFrame extends JFrame {
         l.setOpaque(true);
         l.setForeground(fg);
         l.setBackground(bg);
-        l.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
+        l.setBorder(BorderFactory.createCompoundBorder(
+                new RoundedBorder(new Color(230,230,230), 10),
+                BorderFactory.createEmptyBorder(4, 10, 4, 10)
+        ));
         return l;
     }
 
     private GridBagConstraints gcAt(int x, int y, double wx, double wy, Insets in) {
         GridBagConstraints g = new GridBagConstraints();
-        g.gridx = x; g.gridy = y; g.weightx = wx; g.weighty = wy; g.insets = in; g.anchor = GridBagConstraints.CENTER;
+        g.gridx = x; g.gridy = y; g.weightx = wx; g.weighty = wy; g.insets = in; g.anchor = GridBagConstraints.CENTER; g.fill = GridBagConstraints.BOTH;
         return g;
     }
 
@@ -392,7 +516,8 @@ public class AdminFrame extends JFrame {
                 g2.dispose();
             }
         };
-        chart.setPreferredSize(new Dimension(320, 160));
+        chart.setPreferredSize(new Dimension(360, 200));
+        chart.setMinimumSize(new Dimension(260, 140));
         chart.setOpaque(false);
         return chart;
     }
@@ -510,6 +635,40 @@ public class AdminFrame extends JFrame {
         public Insets getBorderInsets(Component c) { return new Insets(1,1,1,1); }
         @Override
         public Insets getBorderInsets(Component c, Insets insets) { insets.set(1,1,1,1); return insets; }
+    }
+
+    static class ShadowPanel extends JPanel {
+        private final int arc;
+        private final Color border;
+        private final Color shadow;
+
+        ShadowPanel(int arc, Color border, Color shadow) {
+            super();
+            this.arc = arc; this.border = border; this.shadow = shadow;
+            setOpaque(false);
+            setLayout(new BorderLayout());
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            int w = getWidth(); int h = getHeight();
+            int sx = 3, sy = 3; // shadow offset
+            // soft shadow (two passes)
+            g2.setColor(new Color(shadow.getRed(), shadow.getGreen(), shadow.getBlue(), 80));
+            g2.fillRoundRect(sx, sy, w - 1 - sx, h - 1 - sy, arc + 2, arc + 2);
+            g2.setColor(new Color(shadow.getRed(), shadow.getGreen(), shadow.getBlue(), 35));
+            g2.fillRoundRect(sx+1, sy+1, w - 3 - sx, h - 3 - sy, arc + 2, arc + 2);
+            // card body
+            g2.setColor(getBackground());
+            g2.fillRoundRect(0, 0, w - 4, h - 4, arc, arc);
+            // border
+            g2.setColor(border);
+            g2.drawRoundRect(0, 0, w - 4, h - 4, arc, arc);
+            g2.dispose();
+            super.paintComponent(g);
+        }
     }
 
     private static void showSingleWindow(JFrame target) {
