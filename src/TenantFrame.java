@@ -166,6 +166,8 @@ public class TenantFrame extends JFrame {
         btnLogout.setForeground(Color.WHITE);
         btnLogout.setFocusPainted(false);
         btnLogout.addActionListener(e -> {
+            int res = JOptionPane.showConfirmDialog(this, "Are you sure you want to logout?", "Confirm Logout", JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE);
+            if (res != JOptionPane.OK_OPTION) return;
             SwingUtilities.invokeLater(() -> {
                 JFrame f = new LoginFrame();
                 f.setExtendedState(JFrame.MAXIMIZED_BOTH);

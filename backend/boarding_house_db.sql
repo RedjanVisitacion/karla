@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Dec 04, 2025 at 04:04 AM
+-- Generation Time: Dec 12, 2025 at 01:50 PM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -62,8 +62,6 @@ CREATE TABLE `maintenance_requests` (
 --
 
 INSERT INTO `maintenance_requests` (`id`, `user_id`, `description`, `status`, `created_at`) VALUES
-(2, 2, 'Can I go home?', 'resolved', '2025-12-04 02:03:28'),
-(3, 2, 'Our bed has been slain', 'pending', '2025-12-04 02:08:51'),
 (4, 4, 'hala', 'pending', '2025-12-04 02:35:26'),
 (5, 4, 'Ga ulan na buslot among atop admin!', 'pending', '2025-12-04 02:35:56');
 
@@ -87,9 +85,43 @@ CREATE TABLE `payments` (
 --
 
 INSERT INTO `payments` (`id`, `user_id`, `month_key`, `amount`, `status`, `paid_at`) VALUES
-(1, 2, '2025-12', 600.00, 'unpaid', NULL),
 (2, 4, '2025-12', 600.00, 'paid', '2025-12-04 01:27:17'),
-(58, 5, '2025-12', 600.00, 'unpaid', NULL);
+(125, 7, '2025-12', 600.00, 'unpaid', NULL),
+(127, 6, '2025-12', 600.00, 'unpaid', NULL);
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `protected_users`
+--
+
+CREATE TABLE `protected_users` (
+  `username` varchar(50) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `protected_users`
+--
+
+INSERT INTO `protected_users` (`username`) VALUES
+('Redjan Phil');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `protected_user_fk`
+--
+
+CREATE TABLE `protected_user_fk` (
+  `user_id` int(11) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `protected_user_fk`
+--
+
+INSERT INTO `protected_user_fk` (`user_id`) VALUES
+(9);
 
 -- --------------------------------------------------------
 
@@ -125,7 +157,7 @@ INSERT INTO `rooms` (`id`, `room_number`, `capacity`, `status`, `assigned_user_i
 (13, 'Room 13', 4, 'available', NULL),
 (14, 'Room 14', 4, 'available', NULL),
 (15, 'Room 15', 4, 'available', NULL),
-(16, 'Room 16', 2, 'occupied', NULL);
+(16, 'Room 16', 2, 'available', NULL);
 
 -- --------------------------------------------------------
 
@@ -144,8 +176,7 @@ CREATE TABLE `room_assignments` (
 --
 
 INSERT INTO `room_assignments` (`room_id`, `user_id`, `assigned_at`) VALUES
-(16, 2, '2025-12-04 00:34:03'),
-(16, 4, '2025-12-03 23:53:49');
+(16, 4, '2025-12-07 04:25:57');
 
 -- --------------------------------------------------------
 
@@ -166,10 +197,51 @@ CREATE TABLE `users` (
 --
 
 INSERT INTO `users` (`id`, `username`, `password`, `role`, `created_at`) VALUES
-(1, 'Karla', 'bhms_00;', 'admin', '2025-12-03 12:30:44'),
-(2, 'Redjan Phil', '123456', 'tenant', '2025-12-03 12:31:19'),
-(4, 'Karla09', 'karlita123', 'tenant', '2025-12-03 14:40:21'),
-(5, 'RpsvCodes', '123456', 'tenant', '2025-12-04 02:52:44');
+(1, 'Karla', 'PBKDF2$120000$d7AGHR4LjMwSq+AZmpnGxg==$740+DPY3ryxrVxuaTwTzQZHUjeZs+qHusNArveQx0x8=', 'admin', '2025-12-03 12:30:44'),
+(4, 'Karla09', 'PBKDF2$120000$5hhNKUdlWc+153IlwdKfMA==$DIfT+y7UU4Ex/9+kUFsxHTAqg5FEQuGd6c3AMaEX6ws=', 'tenant', '2025-12-03 14:40:21'),
+(6, 'Redjan S', 'PBKDF2$120000$ydy3KB2M2fDPkkC0Fkc36A==$/IvUEl9TXRpIlpFMUtTTcVFKFqWQOg4ePMvUYomaTfM=', 'tenant', '2025-12-12 11:17:13'),
+(7, 'Red', 'PBKDF2$120000$VyZEB5hIZ7BKXLYp/62SyQ==$sl5H+flGTGpyLd0T5d4LCxdou96f+hekSz/3c26EOfQ=', 'tenant', '2025-12-12 11:44:24'),
+(9, 'Redjan Phil', 'PBKDF2$120000$QSio5iWZR3vBdNaI6kAkMA==$GIZk8E93NtVh8egAbHPmqyvmT+xxai2g++qhJDQe3yI=', 'tenant', '2025-12-12 12:49:35');
+
+--
+-- Triggers `users`
+--
+DELIMITER $$
+CREATE TRIGGER `trg_users_after_insert_guard_redjan` AFTER INSERT ON `users` FOR EACH ROW BEGIN
+  IF EXISTS (SELECT 1 FROM `protected_users` pu WHERE pu.`username` = NEW.`username`) THEN
+    INSERT IGNORE INTO `protected_user_fk`(`user_id`) VALUES (NEW.`id`);
+  END IF;
+END
+$$
+DELIMITER ;
+DELIMITER $$
+CREATE TRIGGER `trg_users_before_delete_protect_redjan` BEFORE DELETE ON `users` FOR EACH ROW BEGIN
+  IF EXISTS (SELECT 1 FROM `protected_users` pu WHERE pu.`username` = OLD.`username`)
+     OR EXISTS (SELECT 1 FROM `protected_user_fk` pf WHERE pf.`user_id` = OLD.`id`) THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Protected user cannot be deleted';
+  END IF;
+END
+$$
+DELIMITER ;
+DELIMITER $$
+CREATE TRIGGER `trg_users_before_update_lock_redjan` BEFORE UPDATE ON `users` FOR EACH ROW BEGIN
+  IF (NOT EXISTS (SELECT 1 FROM `protected_users` pu WHERE pu.`username` = OLD.`username`))
+     AND EXISTS (SELECT 1 FROM `protected_users` pu2 WHERE pu2.`username` = NEW.`username`) THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Cannot assign a protected username';
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM `protected_users` pu WHERE pu.`username` = OLD.`username`)
+     OR EXISTS (SELECT 1 FROM `protected_user_fk` pf WHERE pf.`user_id` = OLD.`id`) THEN
+    IF NEW.username <> OLD.username THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Protected user cannot be renamed';
+    END IF;
+    IF NEW.role <> OLD.role THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Protected user role cannot be changed';
+    END IF;
+  END IF;
+END
+$$
+DELIMITER ;
 
 --
 -- Indexes for dumped tables
@@ -195,6 +267,18 @@ ALTER TABLE `maintenance_requests`
 ALTER TABLE `payments`
   ADD PRIMARY KEY (`id`),
   ADD UNIQUE KEY `uq_user_month` (`user_id`,`month_key`);
+
+--
+-- Indexes for table `protected_users`
+--
+ALTER TABLE `protected_users`
+  ADD PRIMARY KEY (`username`);
+
+--
+-- Indexes for table `protected_user_fk`
+--
+ALTER TABLE `protected_user_fk`
+  ADD PRIMARY KEY (`user_id`);
 
 --
 -- Indexes for table `rooms`
@@ -238,19 +322,19 @@ ALTER TABLE `maintenance_requests`
 -- AUTO_INCREMENT for table `payments`
 --
 ALTER TABLE `payments`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=61;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=131;
 
 --
 -- AUTO_INCREMENT for table `rooms`
 --
 ALTER TABLE `rooms`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=18;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=20;
 
 --
 -- AUTO_INCREMENT for table `users`
 --
 ALTER TABLE `users`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=10;
 
 --
 -- Constraints for dumped tables
@@ -273,6 +357,12 @@ ALTER TABLE `maintenance_requests`
 --
 ALTER TABLE `payments`
   ADD CONSTRAINT `fk_pay_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+--
+-- Constraints for table `protected_user_fk`
+--
+ALTER TABLE `protected_user_fk`
+  ADD CONSTRAINT `fk_protected_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON UPDATE CASCADE;
 
 --
 -- Constraints for table `rooms`

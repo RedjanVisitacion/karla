@@ -112,11 +112,15 @@ public class PaymentsFrame extends JFrame {
         btnLogout.setBackground(new Color(33, 150, 243));
         btnLogout.setForeground(Color.WHITE);
         btnLogout.setFocusPainted(false);
-        btnLogout.addActionListener(e -> SwingUtilities.invokeLater(() -> {
-            JFrame f = new LoginFrame();
-            f.setExtendedState(JFrame.MAXIMIZED_BOTH);
-            showSingleWindow(f);
-        }));
+        btnLogout.addActionListener(e -> {
+            int res = JOptionPane.showConfirmDialog(this, "Are you sure you want to logout?", "Confirm Logout", JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE);
+            if (res != JOptionPane.OK_OPTION) return;
+            SwingUtilities.invokeLater(() -> {
+                JFrame f = new LoginFrame();
+                f.setExtendedState(JFrame.MAXIMIZED_BOTH);
+                showSingleWindow(f);
+            });
+        });
         g.gridx = 1; g.gridy = 0; g.gridwidth = 1; g.weightx = 0; g.anchor = GridBagConstraints.EAST;
         container.add(btnLogout, g);
 

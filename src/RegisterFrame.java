@@ -12,6 +12,8 @@ public class RegisterFrame extends JFrame {
     private JPasswordField pfConfirm;
     private JLabel lbMessage;
     private final UserDAO userDAO = new UserDAO();
+    private ImageIcon eyeIcon;
+    private ImageIcon hiddenIcon;
 
     public RegisterFrame() {
         setTitle("Create Account");
@@ -19,6 +21,8 @@ public class RegisterFrame extends JFrame {
         setUndecorated(true);
         setExtendedState(JFrame.MAXIMIZED_BOTH);
         setIconImage(loadAppIcon());
+        eyeIcon = loadIcon("assets/img/eye.png", 18, 18);
+        hiddenIcon = loadIcon("assets/img/hidden.png", 18, 18);
         buildUI();
     }
 
@@ -45,6 +49,10 @@ public class RegisterFrame extends JFrame {
             lbMessage.setText("Passwords do not match.");
             return;
         }
+        if (!isStrongPassword(username, password)) {
+            lbMessage.setText("Password too weak. Use at least 8 characters with uppercase, lowercase, and a number.");
+            return;
+        }
         try {
             boolean ok = userDAO.createUser(username, password, "tenant");
             if (ok) {
@@ -66,6 +74,21 @@ public class RegisterFrame extends JFrame {
                 lbMessage.setText("Error: " + msg);
             }
         }
+    }
+
+    private boolean isStrongPassword(String username, String password) {
+        if (password == null) return false;
+        if (password.length() < 8) return false;
+        String lower = password.toLowerCase();
+        if (lower.equals("password") || lower.equals("123456") || lower.equals("12345678") || lower.equals("qwerty") || lower.equals("abc123") || lower.equals("111111")) return false;
+        if (username != null && !username.isEmpty() && username.equalsIgnoreCase(password)) return false;
+        boolean hasUpper = false, hasLower = false, hasDigit = false;
+        for (char ch : password.toCharArray()) {
+            if (Character.isUpperCase(ch)) hasUpper = true;
+            else if (Character.isLowerCase(ch)) hasLower = true;
+            else if (Character.isDigit(ch)) hasDigit = true;
+        }
+        return hasUpper && hasLower && hasDigit;
     }
 
     private JPanel createWelcomePanel() {
@@ -145,6 +168,9 @@ public class RegisterFrame extends JFrame {
         pfConfirm = new JPasswordField(); pfConfirm.setFont(mainFont);
         pfConfirm.setPreferredSize(new Dimension(360, 36));
 
+        JPanel pwPanel = createPasswordWithToggle(pfPassword);
+        JPanel cfPanel = createPasswordWithToggle(pfConfirm);
+
         lbMessage = new JLabel(" ", SwingConstants.LEFT);
         lbMessage.setForeground(Color.RED);
 
@@ -172,11 +198,11 @@ public class RegisterFrame extends JFrame {
         g.gridy = 3; g.insets = new Insets(0, 0, 6, 0); g.weightx = 0;
         inner.add(lbp, g);
         g.gridy = 4; g.insets = new Insets(0, 0, 12, 0); g.weightx = 1.0;
-        inner.add(pfPassword, g);
+        inner.add(pwPanel, g);
         g.gridy = 5; g.insets = new Insets(0, 0, 6, 0); g.weightx = 0;
         inner.add(lbc, g);
         g.gridy = 6; g.insets = new Insets(0, 0, 12, 0); g.weightx = 1.0;
-        inner.add(pfConfirm, g);
+        inner.add(cfPanel, g);
         g.gridy = 7; g.gridwidth = 2; g.insets = new Insets(0, 0, 8, 0);
         inner.add(lbMessage, g);
         g.gridy = 8; g.gridwidth = 1; g.insets = new Insets(0, 0, 0, 8);
@@ -249,5 +275,46 @@ public class RegisterFrame extends JFrame {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private ImageIcon loadIcon(String path, int w, int h) {
+        try {
+            Image img = new ImageIcon(path).getImage().getScaledInstance(w, h, Image.SCALE_SMOOTH);
+            return new ImageIcon(img);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private JPanel createPasswordWithToggle(JPasswordField field) {
+        JPanel p = new JPanel(new BorderLayout());
+        p.setOpaque(false);
+        p.add(field, BorderLayout.CENTER);
+
+        JButton toggle = new JButton();
+        toggle.setIcon(eyeIcon);
+        toggle.setFocusable(false);
+        toggle.setContentAreaFilled(false);
+        toggle.setBorderPainted(false);
+        toggle.setMargin(new Insets(0,0,0,0));
+        toggle.setPreferredSize(new Dimension(36, 36));
+        final char def = field.getEchoChar();
+        toggle.addActionListener(e -> {
+            boolean showing = field.getEchoChar() == 0;
+            if (showing) {
+                field.setEchoChar(def);
+                if (eyeIcon != null) toggle.setIcon(eyeIcon);
+            } else {
+                field.setEchoChar((char) 0);
+                if (hiddenIcon != null) toggle.setIcon(hiddenIcon);
+            }
+        });
+
+        JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        right.setOpaque(false);
+        right.add(toggle);
+        p.add(right, BorderLayout.EAST);
+        p.setPreferredSize(new Dimension(360, 36));
+        return p;
     }
 }
